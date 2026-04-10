@@ -6,13 +6,20 @@ Built primarily to assemble the Radio-86RK monitor ROM, but works with any Intel
 
 ## Usage
 
-Assemble a source file:
+Run directly from npm (no install required):
 
 ```sh
-bun run asm8.ts <source.asm> [--one|--split]
+npx asm8080 <source.asm> [--split]
+bunx asm8080 <source.asm> [--split]
 ```
 
-- `--one` (default) — produces a single 64 KB file `0000-FFFF.bin` with sections placed at their addresses
+Or with Bun from source:
+
+```sh
+bun run asm8.ts <source.asm> [--split]
+```
+
+- Default — produces a single 64 KB file `0000-FFFF.bin` with sections placed at their addresses
 - `--split` — produces one file per section, named `SSSS-EEEE.bin`
 
 A section map is printed to stdout:

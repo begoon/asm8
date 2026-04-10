@@ -1,12 +1,40 @@
 {
-  "name": "asm8",
-  "module": "index.ts",
+  "name": "asm8080",
+  "version": "1.0.1",
+  "description": "Intel 8080 two-pass assembler",
   "type": "module",
-  "private": true,
-  "devDependencies": {
-    "@types/bun": "latest"
+  "main": "./dist/asm8.js",
+  "types": "./dist/asm8.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/asm8.d.ts",
+      "default": "./dist/asm8.js"
+    }
   },
-  "peerDependencies": {
+  "bin": {
+    "asm8080": "bin/asm8.js"
+  },
+  "files": [
+    "dist",
+    "bin"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build",
+    "test": "bun test",
+    "fmt": "bunx --bun prettier --write ."
+  },
+  "keywords": [
+    "8080",
+    "assembler",
+    "intel",
+    "i8080",
+    "asm"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^22",
     "typescript": "^5"
   }
 }

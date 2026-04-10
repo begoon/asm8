@@ -1,5 +1,7 @@
 // asm8.ts - Intel 8080 two-pass assembler
 
+import { readFileSync, writeFileSync } from "node:fs";
+
 export interface Section {
     start: number;
     end: number;
@@ -369,15 +371,27 @@ export function asm(source: string): Section[] {
 }
 
 // CLI driver
-if (import.meta.main) {
+export function cli() {
     const args = process.argv.slice(2);
-    const file = args.find((a) => !a.startsWith("--"));
+
+    if (args.includes("-h") || args.includes("--help")) {
+        console.log(`asm8080 - Intel 8080 two-pass assembler
+
+Usage: asm8080 <source.asm> [options]
+
+Options:
+  --split   write each section as a separate file (XXXX-XXXX.bin)
+  -h        show this help`);
+        return;
+    }
+
+    const file = args.find((a) => !a.startsWith("-"));
     if (!file) {
-        console.error("Usage: bun run asm8.ts <source.asm> [--one|--split]");
+        console.error("Usage: asm8080 <source.asm> [--split]");
         process.exit(1);
     }
 
-    const source = await Bun.file(file).text();
+    const source = readFileSync(file, "utf-8");
     const sections = asm(source);
 
     for (const s of sections) {
@@ -390,11 +404,15 @@ if (import.meta.main) {
         for (const s of sections) {
             const lo = s.start.toString(16).toUpperCase().padStart(4, "0");
             const hi = s.end.toString(16).toUpperCase().padStart(4, "0");
-            await Bun.write(`${lo}-${hi}.bin`, new Uint8Array(s.data));
+            writeFileSync(`${lo}-${hi}.bin`, new Uint8Array(s.data));
         }
     } else {
         const buf = new Uint8Array(65536);
         for (const s of sections) buf.set(s.data, s.start);
-        await Bun.write("0000-FFFF.bin", buf);
+        writeFileSync("0000-FFFF.bin", buf);
     }
+}
+
+if (import.meta.main) {
+    cli();
 }

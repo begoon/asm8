@@ -5,13 +5,20 @@ Intel 8080 two-pass assembler in a single file (`asm8.ts`), with CLI driver.
 ## Commands
 
 - `bun test` — run all tests
-- `bun run asm8.ts <file.asm> [--one|--split]` — assemble a file
+- `bun run asm8.ts <file.asm> [--split]` — assemble a file
 - `bun fmt` — format with prettier (`bunx --bun prettier --write`)
+- `just publish` — bump patch version, run tests, publish to npm
+
+## npm package
+
+Published as `asm8080` on npmjs. Run via `npx asm8080` or `bunx asm8080`.
 
 ## Project layout
 
 ```text
-asm8.ts                  assembler + CLI (single file, exports `asm()`)
+asm8.ts                  assembler + CLI (single file, exports `asm()` and `cli()`)
+bin/asm8.js              shebang wrapper for npx/node
+dist/                    tsc build output (gitignored)
 tests/asm8.test.ts       golden-file test: monitor.asm vs mon32.bin
 tests/asm8-instructions.test.ts  all i8080 instruction encodings
 target/monitor.asm       reference input (Radio-86RK monitor ROM)
