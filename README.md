@@ -9,18 +9,19 @@ Built primarily to assemble the Radio-86RK monitor ROM, but works with any Intel
 Run directly from npm (no install required):
 
 ```sh
-npx asm8080 <source.asm> [--split]
-bunx asm8080 <source.asm> [--split]
+npx asm8080 <source.asm> [--split] [-o <dir>]
+bunx asm8080 <source.asm> [--split] [-o <dir>]
 ```
 
 Or with Bun from source:
 
 ```sh
-bun run asm8.ts <source.asm> [--split]
+bun run asm8.ts <source.asm> [--split] [-o <dir>]
 ```
 
 - Default — produces a single 64 KB file `0000-FFFF.bin` with sections placed at their addresses
-- `--split` — produces one file per section, named `SSSS-EEEE.bin`
+- `--split` — produces one file per section, named `SSSS-EEEE.bin` (or `name.bin` if the section has a `section` directive)
+- `-o <dir>` — write output files to the given directory (created if needed, default: current directory)
 
 A section map is printed to stdout:
 
@@ -33,11 +34,12 @@ F800-FFFF  2048 bytes
 - Two-pass assembly (forward references resolved automatically)
 - Case-insensitive mnemonics, registers, and symbols
 - All documented Intel 8080 instructions
-- Directives: `org`, `db`, `dw`, `equ`, `end`
+- Directives: `org`, `section`, `db`, `dw`, `equ`, `end`
 - Number formats: decimal (`255`), hex with `h` suffix (`0FFh`)
 - Character literals: `'A'` (usable anywhere a byte value is expected)
 - Strings in `db`: `db "hello"` or `db 'hello'`
 - Expressions with `+` and `-`: `lxi h, base + offset - 1`
+- Named sections: `section name` after `org` names the section for `--split` output
 
 ## Tests
 

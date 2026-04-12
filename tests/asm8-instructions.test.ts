@@ -444,6 +444,37 @@ test("multiple org creates multiple sections", () => {
     expect(s[1]).toEqual({ start: 0x200, end: 0x200, data: [0x76] });
 });
 
+test("section names a section", () => {
+    const s = asm("org 100h\nsection rom\nnop\nend\n");
+    expect(s).toHaveLength(1);
+    expect(s[0].name).toBe("rom");
+});
+
+test("section name only on named sections", () => {
+    const s = asm("org 100h\nnop\norg 200h\nsection data\nhlt\nend\n");
+    expect(s).toHaveLength(2);
+    expect(s[0].name).toBeUndefined();
+    expect(s[1].name).toBe("data");
+});
+
+test("duplicate section name throws", () => {
+    expect(() =>
+        asm("org 100h\nsection rom\nnop\norg 200h\nsection rom\nhlt\nend\n"),
+    ).toThrow("duplicate section name: rom");
+});
+
+test("duplicate section name is case-insensitive", () => {
+    expect(() =>
+        asm("org 100h\nsection ROM\nnop\norg 200h\nsection rom\nhlt\nend\n"),
+    ).toThrow("duplicate section name: rom");
+});
+
+test("section before org throws", () => {
+    expect(() => asm("section rom\norg 100h\nnop\nend\n")).toThrow(
+        "SECTION before ORG",
+    );
+});
+
 // ---------------------------------------------------------------------------
 // Number formats
 // ---------------------------------------------------------------------------

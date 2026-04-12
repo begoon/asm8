@@ -5,7 +5,7 @@ Intel 8080 two-pass assembler in a single file (`asm8.ts`), with CLI driver.
 ## Commands
 
 - `bun test` — run all tests
-- `bun run asm8.ts <file.asm> [--split]` — assemble a file
+- `bun run asm8.ts <file.asm> [--split] [-o <dir>]` — assemble a file
 - `bun fmt` — format with prettier (`bunx --bun prettier --write`)
 - `just publish` — bump patch version, run tests, publish to npm
 
@@ -28,8 +28,8 @@ target/mon32.bin         reference binary (2048 bytes, F800-FFFF)
 ## Architecture
 
 Two-pass assembler. Pass 1 collects symbols (labels + equ), pass 2 emits bytes.
-`asm(source: string)` returns `Section[]` where each section has `start`, `end`, `data`.
-A new section starts at each `org` directive.
+`asm(source: string)` returns `Section[]` where each section has `start`, `end`, `data`, and optional `name`.
+A new section starts at each `org` directive. The `section name` directive names the current section (must be unique, must follow `org`).
 
 ## Conventions
 

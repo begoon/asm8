@@ -11,3 +11,6 @@ publish: test
 
 clean:
     rm -f ????-????.bin
+
+npm-clean:
+    npm cache clean --force

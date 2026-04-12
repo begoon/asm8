@@ -1,11 +1,13 @@
 // asm8.ts - Intel 8080 two-pass assembler
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { join, dirname } from "node:path";
 
 export interface Section {
     start: number;
     end: number;
     data: number[];
+    name?: string;
 }
 
 const REG8: Record<string, number> = {
@@ -321,6 +323,7 @@ export function asm(source: string): Section[] {
             pc = evalExpr(parts.operands[0], symbols);
             continue;
         }
+        if (m === "SECTION") continue;
         if (m === "END") break;
         if (m === "DB") {
             pc += countDb(parts.operands);
@@ -336,6 +339,7 @@ export function asm(source: string): Section[] {
     // Pass 2: emit code
     const sections: Section[] = [];
     let current: Section | null = null;
+    const sectionNames = new Set<string>();
 
     for (const line of lines) {
         const parts = parseLine(line);
@@ -349,6 +353,16 @@ export function asm(source: string): Section[] {
             }
             const addr = evalExpr(parts.operands[0], symbols);
             current = { start: addr, end: addr, data: [] };
+            continue;
+        }
+        if (m === "SECTION") {
+            if (!current) throw new Error("SECTION before ORG");
+            const name = parts.operands[0];
+            if (!name) throw new Error("SECTION requires a name");
+            if (sectionNames.has(name.toUpperCase()))
+                throw new Error(`duplicate section name: ${name}`);
+            sectionNames.add(name.toUpperCase());
+            current.name = name;
             continue;
         }
         if (m === "END") break;
@@ -374,20 +388,47 @@ export function asm(source: string): Section[] {
 export function cli() {
     const args = process.argv.slice(2);
 
+    if (args.includes("-v") || args.includes("--version")) {
+        let dir = dirname(import.meta.filename);
+        for (let i = 0; i < 2; i++) {
+            try {
+                const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf-8"));
+                console.log(pkg.version);
+                return;
+            } catch {
+                dir = dirname(dir);
+            }
+        }
+        return;
+    }
+
     if (args.includes("-h") || args.includes("--help")) {
         console.log(`asm8080 - Intel 8080 two-pass assembler
 
 Usage: asm8080 <source.asm> [options]
 
 Options:
-  --split   write each section as a separate file (XXXX-XXXX.bin)
-  -h        show this help`);
+  --split    write each section as a separate file (name.bin or XXXX-XXXX.bin)
+  -o <dir>   output directory (default: current directory)
+  -v         show version
+  -h         show this help`);
         return;
     }
 
-    const file = args.find((a) => !a.startsWith("-"));
+    let outDir = ".";
+    const oIdx = args.indexOf("-o");
+    if (oIdx !== -1) {
+        if (oIdx + 1 >= args.length) {
+            console.error("-o requires a directory argument");
+            process.exit(1);
+        }
+        outDir = args[oIdx + 1];
+        mkdirSync(outDir, { recursive: true });
+    }
+
+    const file = args.find((a, i) => !a.startsWith("-") && i !== oIdx + 1);
     if (!file) {
-        console.error("Usage: asm8080 <source.asm> [--split]");
+        console.error("Usage: asm8080 <source.asm> [--split] [-o <dir>]");
         process.exit(1);
     }
 
@@ -402,14 +443,20 @@ Options:
 
     if (args.includes("--split")) {
         for (const s of sections) {
-            const lo = s.start.toString(16).toUpperCase().padStart(4, "0");
-            const hi = s.end.toString(16).toUpperCase().padStart(4, "0");
-            writeFileSync(`${lo}-${hi}.bin`, new Uint8Array(s.data));
+            let name: string;
+            if (s.name) {
+                name = s.name;
+            } else {
+                const lo = s.start.toString(16).toUpperCase().padStart(4, "0");
+                const hi = s.end.toString(16).toUpperCase().padStart(4, "0");
+                name = `${lo}-${hi}`;
+            }
+            writeFileSync(join(outDir, `${name}.bin`), new Uint8Array(s.data));
         }
     } else {
         const buf = new Uint8Array(65536);
         for (const s of sections) buf.set(s.data, s.start);
-        writeFileSync("0000-FFFF.bin", buf);
+        writeFileSync(join(outDir, "0000-FFFF.bin"), buf);
     }
 }
 
