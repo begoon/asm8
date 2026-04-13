@@ -404,6 +404,90 @@ describe("expressions", () => {
         // 0 - 1 = 0xFFFF (16-bit)
         expect(s[0].data).toEqual([0x21, 0xff, 0xff]);
     });
+
+    test("multiplication", () => {
+        expect(bytes("mvi a, 3 * 5")).toEqual([0x3e, 15]);
+    });
+
+    test("division", () => {
+        expect(bytes("mvi a, 0FFh / 2")).toEqual([0x3e, 127]);
+    });
+
+    test("modulo", () => {
+        expect(bytes("mvi a, 10 % 3")).toEqual([0x3e, 1]);
+    });
+
+    test("bitwise or", () => {
+        expect(bytes("mvi a, 40h | 03h")).toEqual([0x3e, 0x43]);
+    });
+
+    test("bitwise and", () => {
+        expect(bytes("mvi a, 0FFh & 0Fh")).toEqual([0x3e, 0x0f]);
+    });
+
+    test("bitwise xor", () => {
+        expect(bytes("mvi a, 0FFh ^ 0F0h")).toEqual([0x3e, 0x0f]);
+    });
+
+    test("bitwise not", () => {
+        expect(bytes("mvi a, ~0Fh & 0FFh")).toEqual([0x3e, 0xf0]);
+    });
+
+    test("shift left", () => {
+        expect(bytes("mvi a, 1 << 4")).toEqual([0x3e, 0x10]);
+    });
+
+    test("shift right", () => {
+        expect(bytes("mvi a, 80h >> 4")).toEqual([0x3e, 0x08]);
+    });
+
+    test("parentheses", () => {
+        expect(bytes("mvi a, (1 + 2) * 3")).toEqual([0x3e, 9]);
+    });
+
+    test("nested parentheses", () => {
+        expect(bytes("mvi a, ((4 + 2) * (1 + 2))")).toEqual([0x3e, 18]);
+    });
+
+    test("unary minus", () => {
+        expect(bytes("mvi a, -(1 - 3)")).toEqual([0x3e, 2]);
+    });
+
+    test("complex expression with or, division, and parens", () => {
+        const s = asm("cnt equ 200h\norg 0\nmvi a, 40h | ((cnt - 1) / 256)\nend\n");
+        // (0x200 - 1) / 256 = 0x1FF / 256 = 1, then 0x40 | 1 = 0x41
+        expect(s[0].data).toEqual([0x3e, 0x41]);
+    });
+
+    test("operator precedence: * before +", () => {
+        expect(bytes("mvi a, 2 + 3 * 4")).toEqual([0x3e, 14]);
+    });
+
+    test("operator precedence: & before |", () => {
+        expect(bytes("mvi a, 0F0h & 0FFh | 01h")).toEqual([0x3e, 0xf1]);
+    });
+
+    test("LOW returns low byte", () => {
+        expect(bytes("mvi a, LOW(1234h)")).toEqual([0x3e, 0x34]);
+    });
+
+    test("HIGH returns high byte", () => {
+        expect(bytes("mvi a, HIGH(1234h)")).toEqual([0x3e, 0x12]);
+    });
+
+    test("LOW/HIGH with symbol", () => {
+        const s = asm("addr equ 0ABCDh\norg 0\nmvi a, LOW(addr)\nmvi b, HIGH(addr)\nend\n");
+        expect(s[0].data).toEqual([0x3e, 0xcd, 0x06, 0xab]);
+    });
+
+    test("LOW/HIGH in expression", () => {
+        expect(bytes("mvi a, HIGH(1234h) + 1")).toEqual([0x3e, 0x13]);
+    });
+
+    test("LOW/HIGH case insensitive", () => {
+        expect(bytes("mvi a, low(0ABCDh)")).toEqual([0x3e, 0xcd]);
+        expect(bytes("mvi a, high(0ABCDh)")).toEqual([0x3e, 0xab]);
+    });
 });
 
 // ---------------------------------------------------------------------------

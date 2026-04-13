@@ -31,6 +31,16 @@ Two-pass assembler. Pass 1 collects symbols (labels + equ), pass 2 emits bytes.
 `asm(source: string)` returns `Section[]` where each section has `start`, `end`, `data`, and optional `name`.
 A new section starts at each `org` directive. The `section name` directive names the current section (must be unique, must follow `org`).
 
+Expressions use a recursive descent parser with C operator precedence:
+`+`, `-`, `*`, `/`, `%`, `|`, `&`, `^`, `~`, `<<`, `>>`, `()`, `LOW()`, `HIGH()`.
+
+## CLI flags
+
+- `--split` — one file per section (`name.bin` or `XXXX-XXXX.bin`)
+- `-o <dir>` — output directory (created if needed)
+- `-v` — print version from package.json
+- `-h` — help
+
 ## Conventions
 
 - One `let` per variable declaration (no comma-separated `let` chains)

@@ -38,7 +38,8 @@ F800-FFFF  2048 bytes
 - Number formats: decimal (`255`), hex with `h` suffix (`0FFh`)
 - Character literals: `'A'` (usable anywhere a byte value is expected)
 - Strings in `db`: `db "hello"` or `db 'hello'`
-- Expressions with `+` and `-`: `lxi h, base + offset - 1`
+- Expressions: `+`, `-`, `*`, `/`, `%`, `|`, `&`, `^`, `~`, `<<`, `>>`, `()` with C precedence
+- `LOW(expr)` / `HIGH(expr)` — extract low or high byte of a 16-bit value
 - Named sections: `section name` after `org` names the section for `--split` output
 
 ## Tests

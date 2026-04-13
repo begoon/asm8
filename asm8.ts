@@ -201,37 +201,188 @@ function parseLine(line: string): ParsedLine {
     return { label, mnemonic: first, operands: rest ? splitOperands(rest) : [] };
 }
 
-function evalAtom(s: string, symbols: Map<string, number>): number {
-    s = s.trim();
-    if (s.length === 3 && s[0] === "'" && s[2] === "'") return s.charCodeAt(1);
-    if (/^[0-9][0-9A-Fa-f]*[hH]$/.test(s)) return parseInt(s.slice(0, -1), 16);
-    if (/^[0-9]+$/.test(s)) return parseInt(s, 10);
-    const k = s.toUpperCase();
-    if (symbols.has(k)) return symbols.get(k)!;
-    throw new Error(`unknown symbol: ${s}`);
+interface Token {
+    kind: "num" | "id" | "op";
+    val: string | number;
+}
+
+function tokenizeExpr(expr: string): Token[] {
+    const tokens: Token[] = [];
+    let i = 0;
+    while (i < expr.length) {
+        let c = expr[i];
+        if (/\s/.test(c)) {
+            i++;
+            continue;
+        }
+        if (c === "'" && i + 2 < expr.length && expr[i + 2] === "'") {
+            tokens.push({ kind: "num", val: expr.charCodeAt(i + 1) });
+            i += 3;
+            continue;
+        }
+        if (/[0-9]/.test(c)) {
+            let j = i;
+            while (j < expr.length && /[0-9A-Fa-f]/.test(expr[j])) j++;
+            if (j < expr.length && /[hH]/.test(expr[j])) {
+                tokens.push({ kind: "num", val: parseInt(expr.slice(i, j), 16) });
+                j++;
+            } else {
+                tokens.push({ kind: "num", val: parseInt(expr.slice(i, j), 10) });
+            }
+            i = j;
+            continue;
+        }
+        if (/[A-Za-z_]/.test(c)) {
+            let j = i;
+            while (j < expr.length && /\w/.test(expr[j])) j++;
+            tokens.push({ kind: "id", val: expr.slice(i, j) });
+            i = j;
+            continue;
+        }
+        if (c === "<" && expr[i + 1] === "<") {
+            tokens.push({ kind: "op", val: "<<" });
+            i += 2;
+            continue;
+        }
+        if (c === ">" && expr[i + 1] === ">") {
+            tokens.push({ kind: "op", val: ">>" });
+            i += 2;
+            continue;
+        }
+        if ("+-*/%&|^~()".includes(c)) {
+            tokens.push({ kind: "op", val: c });
+            i++;
+            continue;
+        }
+        throw new Error(`unexpected character in expression: '${c}'`);
+    }
+    return tokens;
 }
 
 function evalExpr(expr: string, symbols: Map<string, number>): number {
-    expr = expr.trim();
-    const tokens: string[] = [];
-    const ops: string[] = ["+"];
-    let current = "";
-    for (const c of expr) {
-        if ((c === "+" || c === "-") && current.trim()) {
-            tokens.push(current.trim());
-            ops.push(c);
-            current = "";
-        } else {
-            current += c;
+    const tokens = tokenizeExpr(expr);
+    let pos = 0;
+
+    function peek(): Token | undefined {
+        return tokens[pos];
+    }
+    function next(): Token {
+        return tokens[pos++];
+    }
+    function isOp(val: string): boolean {
+        const t = peek();
+        return t !== undefined && t.kind === "op" && t.val === val;
+    }
+
+    function atom(): number {
+        const t = peek();
+        if (!t) throw new Error("unexpected end of expression");
+        if (t.kind === "num") {
+            next();
+            return t.val as number;
         }
+        if (t.kind === "id") {
+            next();
+            const k = (t.val as string).toUpperCase();
+            if (k === "LOW" || k === "HIGH") {
+                if (!isOp("(")) throw new Error(`${k} requires parentheses`);
+                next();
+                const v = parseOr();
+                if (!isOp(")")) throw new Error("expected ')'");
+                next();
+                return k === "LOW" ? v & 0xff : (v >> 8) & 0xff;
+            }
+            if (symbols.has(k)) return symbols.get(k)!;
+            throw new Error(`unknown symbol: ${t.val}`);
+        }
+        if (t.kind === "op" && t.val === "(") {
+            next();
+            const v = parseOr();
+            if (!isOp(")")) throw new Error("expected ')'");
+            next();
+            return v;
+        }
+        throw new Error(`unexpected token: ${t.val}`);
     }
-    if (current.trim()) tokens.push(current.trim());
-    let r = 0;
-    for (let i = 0; i < tokens.length; i++) {
-        const v = evalAtom(tokens[i], symbols);
-        r = ops[i] === "+" ? r + v : r - v;
+
+    function unary(): number {
+        if (isOp("-")) {
+            next();
+            return (-unary()) & 0xffff;
+        }
+        if (isOp("+")) {
+            next();
+            return unary();
+        }
+        if (isOp("~")) {
+            next();
+            return ~unary() & 0xffff;
+        }
+        return atom();
     }
-    return r & 0xffff;
+
+    function multiplicative(): number {
+        let v = unary();
+        while (isOp("*") || isOp("/") || isOp("%")) {
+            const op = next().val;
+            let r = unary();
+            if (op === "*") v = (v * r) & 0xffff;
+            else if (op === "/") v = Math.trunc(v / r) & 0xffff;
+            else v = (v % r) & 0xffff;
+        }
+        return v;
+    }
+
+    function additive(): number {
+        let v = multiplicative();
+        while (isOp("+") || isOp("-")) {
+            const op = next().val;
+            let r = multiplicative();
+            v = op === "+" ? (v + r) & 0xffff : (v - r) & 0xffff;
+        }
+        return v;
+    }
+
+    function shift(): number {
+        let v = additive();
+        while (isOp("<<") || isOp(">>")) {
+            const op = next().val;
+            let r = additive();
+            v = op === "<<" ? (v << r) & 0xffff : (v >>> r) & 0xffff;
+        }
+        return v;
+    }
+
+    function parseAnd(): number {
+        let v = shift();
+        while (isOp("&")) {
+            next();
+            v = v & shift();
+        }
+        return v;
+    }
+
+    function parseXor(): number {
+        let v = parseAnd();
+        while (isOp("^")) {
+            next();
+            v = (v ^ parseAnd()) & 0xffff;
+        }
+        return v;
+    }
+
+    function parseOr(): number {
+        let v = parseXor();
+        while (isOp("|")) {
+            next();
+            v = (v | parseXor()) & 0xffff;
+        }
+        return v;
+    }
+
+    const result = parseOr();
+    if (pos < tokens.length) throw new Error(`unexpected token: ${tokens[pos].val}`);
+    return result;
 }
 
 function encode(m: string, ops: string[], symbols: Map<string, number>): number[] {
