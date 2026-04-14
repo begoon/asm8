@@ -1,10 +1,16 @@
-# asm8
+# asm8080
 
-A generic Intel 8080 assembler written in TypeScript. Runs with [Bun](https://bun.sh).
+Intel 8080 two-pass assembler written in TypeScript.
 
 Built primarily to assemble the Radio-86RK monitor ROM, but works with any Intel 8080 source.
 
-## Usage
+## Install
+
+```sh
+npm install asm8080
+```
+
+## CLI
 
 Run directly from npm (no install required):
 
@@ -13,21 +19,31 @@ npx asm8080 <source.asm> [--split] [-o <dir>]
 bunx asm8080 <source.asm> [--split] [-o <dir>]
 ```
 
-Or with Bun from source:
+Options:
 
-```sh
-bun run asm8.ts <source.asm> [--split] [-o <dir>]
-```
+- `--split` — one file per section (`name.bin` or `XXXX-XXXX.bin`)
+- `-o <dir>` — output directory (created if needed)
+- `-v`, `--version` — print version
+- `-h`, `--help` — show help
 
-- Default — produces a single 64 KB file `0000-FFFF.bin` with sections placed at their addresses
-- `--split` — produces one file per section, named `SSSS-EEEE.bin` (or `name.bin` if the section has a `section` directive)
-- `-o <dir>` — write output files to the given directory (created if needed, default: current directory)
+Default output is a single 64 KB file `0000-FFFF.bin` with sections placed at their addresses. With `--split`, each section is written as a separate file.
 
 A section map is printed to stdout:
 
 ```text
 F800-FFFF  2048 bytes
 ```
+
+## API
+
+```ts
+import { asm } from "asm8080";
+
+const sections = asm(source);
+// Section[] — each section has: start, end, data, name?
+```
+
+Each `org` directive creates a new section. The `section name` directive names it.
 
 ## Assembler features
 
@@ -40,7 +56,6 @@ F800-FFFF  2048 bytes
 - Strings in `db`: `db "hello"` or `db 'hello'`
 - Expressions: `+`, `-`, `*`, `/`, `%`, `|`, `&`, `^`, `~`, `<<`, `>>`, `()` with C precedence
 - `LOW(expr)` / `HIGH(expr)` — extract low or high byte of a 16-bit value
-- Named sections: `section name` after `org` names the section for `--split` output
 
 ## Tests
 
@@ -53,5 +68,9 @@ bun test
 
 ## Reference files
 
-- `target/monitor.asm` — Radio-86RK monitor ROM source (1494 lines)
+- `target/monitor.asm` — Radio-86RK monitor ROM source
 - `target/mon32.bin` — expected binary output (2048 bytes, F800-FFFF)
+
+## License
+
+MIT
