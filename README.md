@@ -15,13 +15,14 @@ npm install asm8080
 Run directly from npm (no install required):
 
 ```sh
-npx asm8080 <source.asm> [--split] [-o <dir>]
-bunx asm8080 <source.asm> [--split] [-o <dir>]
+npx asm8080 <source.asm> [--split] [-l] [-o <dir>]
+bunx asm8080 <source.asm> [--split] [-l] [-o <dir>]
 ```
 
 Options:
 
 - `--split` — one file per section (`name.bin` or `XXXX-XXXX.bin`)
+- `-l` — generate listing file (`.lst`)
 - `-o <dir>` — output directory (created if needed)
 - `-v`, `--version` — print version
 - `-h`, `--help` — show help
@@ -32,6 +33,18 @@ A section map is printed to stdout:
 
 ```text
 F800-FFFF  2048 bytes
+```
+
+With `-l`, a listing file is generated alongside the binary output. Each source line is prefixed with its address and emitted bytes, and a symbol table is appended:
+
+```text
+F800: C3 36 F8      start:           jmp  entry_start
+F803: 3E 8A                          mvi  a, 8Ah
+
+Symbol Table:
+
+ENTRY_START              F836
+START                    F800
 ```
 
 ## API
