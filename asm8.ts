@@ -666,7 +666,14 @@ export function listing(source: string): string {
           ? dwBytes(parts.operands, symbols)
           : encode(m, parts.operands, symbols);
 
-    out.push(fmtLst(hex4(pc) + ": " + bytes.map(hex2).join(" "), line));
+    for (let i = 0; i < bytes.length; i += 4) {
+      let chunk = bytes.slice(i, i + 4);
+      let prefix = hex4(pc + i) + ": " + chunk.map(hex2).join(" ");
+      out.push(fmtLst(prefix, i === 0 ? line : ""));
+    }
+    if (bytes.length === 0) {
+      out.push(fmtLst(hex4(pc) + ":", line));
+    }
     pc += bytes.length;
   }
 
