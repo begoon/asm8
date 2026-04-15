@@ -308,7 +308,7 @@ function evalExpr(expr: string, symbols: Map<string, number>): number {
     function unary(): number {
         if (isOp("-")) {
             next();
-            return (-unary()) & 0xffff;
+            return -unary() & 0xffff;
         }
         if (isOp("+")) {
             next();
@@ -510,8 +510,7 @@ export function asm(source: string): Section[] {
             if (!current) throw new Error("SECTION before ORG");
             const name = parts.operands[0];
             if (!name) throw new Error("SECTION requires a name");
-            if (sectionNames.has(name.toUpperCase()))
-                throw new Error(`duplicate section name: ${name}`);
+            if (sectionNames.has(name.toUpperCase())) throw new Error(`duplicate section name: ${name}`);
             sectionNames.add(name.toUpperCase());
             current.name = name;
             continue;
@@ -535,11 +534,37 @@ export function asm(source: string): Section[] {
     return sections;
 }
 
+function flag(args: string[], name: string): boolean {
+    const i = args.indexOf(name);
+    if (i == -1) return false;
+    args.splice(i, 1);
+    return true;
+}
+
+function arg<T>(
+    args: string[],
+    name: string,
+    defaultValue?: string,
+    matcher?: RegExp,
+    convertor?: (value: string) => T,
+): string | T | undefined {
+    const convert = (v: string) => (convertor ? convertor(v) : v);
+    const i = args.indexOf(name);
+    if (i == -1) return undefined;
+    if (i + 1 >= args.length || (matcher && !matcher.test(args[i + 1]))) {
+        args.splice(i, 1);
+        return defaultValue ? convert(defaultValue) : defaultValue;
+    }
+    const value = args[i + 1];
+    args.splice(i, 2);
+    return convert(value);
+}
+
 // CLI driver
 export function cli() {
     const args = process.argv.slice(2);
 
-    if (args.includes("-v") || args.includes("--version")) {
+    if (flag(args, "-v") || flag(args, "--version")) {
         let dir = dirname(import.meta.filename);
         for (let i = 0; i < 2; i++) {
             try {
@@ -553,7 +578,7 @@ export function cli() {
         return;
     }
 
-    if (args.includes("-h") || args.includes("--help")) {
+    if (flag(args, "-h") || flag(args, "--help")) {
         console.log(`asm8080 - Intel 8080 two-pass assembler
 
 Usage: asm8080 <source.asm> [options]
@@ -566,18 +591,12 @@ Options:
         return;
     }
 
-    let outDir = ".";
-    const oIdx = args.indexOf("-o");
-    if (oIdx !== -1) {
-        if (oIdx + 1 >= args.length) {
-            console.error("-o requires a directory argument");
-            process.exit(1);
-        }
-        outDir = args[oIdx + 1];
-        mkdirSync(outDir, { recursive: true });
-    }
+    let outDir = (arg(args, "-o") as string) ?? ".";
+    mkdirSync(outDir, { recursive: true });
 
-    const file = args.find((a, i) => !a.startsWith("-") && i !== oIdx + 1);
+    let split = flag(args, "--split");
+
+    const file = args[0];
     if (!file) {
         console.error("Usage: asm8080 <source.asm> [--split] [-o <dir>]");
         process.exit(1);
@@ -592,7 +611,7 @@ Options:
         console.log(`${lo}-${hi}  ${s.data.length} bytes`);
     }
 
-    if (args.includes("--split")) {
+    if (split) {
         for (const s of sections) {
             let name: string;
             if (s.name) {
