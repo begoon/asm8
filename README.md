@@ -75,12 +75,21 @@ Each `org` directive creates a new section. The `section name` directive names i
 - Two-pass assembly (forward references resolved automatically)
 - Case-insensitive mnemonics, registers, and symbols
 - All documented Intel 8080 instructions
-- Directives: `org`, `section`, `db`, `dw`, `equ`, `end` — each may also be written with a leading dot (`.org`, `.db`, etc.) for compatibility with other assemblers
+- Directives: `org`, `section`, `db`, `dw`, `ds`, `equ`, `end` — each may also be written with a leading dot (`.org`, `.db`, etc.) for compatibility with other assemblers
+- `ds N` reserves `N` bytes filled with 0; `ds N (F)` reserves `N` bytes filled with byte value `F`
 - Number formats: decimal (`255`), hex with `h` suffix (`0FFh`)
 - Character literals: `'A'` (usable anywhere a byte value is expected)
 - Strings in `db`: `db "hello"` or `db 'hello'`
 - Expressions: `+`, `-`, `*`, `/`, `%`, `|`, `&`, `^`, `~`, `<<`, `>>`, `()` with C precedence
 - `LOW(expr)` / `HIGH(expr)` — extract low or high byte of a 16-bit value
+- Multiple statements per line joined with ` / ` (spaces required on both sides), up to 10 per line:
+
+  ```
+  push h / push b / push d
+  pop  d / pop  b / pop  h
+  ```
+
+  To disambiguate from division, the split only fires when a valid instruction name (or directive, optionally dotted) follows the ` / `. So `mvi a, 10 / 2` is still treated as division (`10 / 2 = 5`).
 
 ## Tests
 

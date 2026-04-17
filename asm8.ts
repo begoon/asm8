@@ -150,6 +150,7 @@ const ALL_MNEMONICS = new Set<string>([
   "RST",
   "DB",
   "DW",
+  "DS",
   "ORG",
   "SECTION",
   "END",
@@ -259,7 +260,7 @@ interface ParsedLine {
   isEqu?: boolean;
 }
 
-const DIRECTIVES = new Set(["ORG", "SECTION", "END", "DB", "DW", "EQU"]);
+const DIRECTIVES = new Set(["ORG", "SECTION", "END", "DB", "DW", "DS", "EQU"]);
 
 function stripDirectiveDot(s: string): string {
   if (s.startsWith(".") && DIRECTIVES.has(s.slice(1).toUpperCase())) {
@@ -560,6 +561,26 @@ function dwBytes(operands: string[], symbols: Map<string, number>): number[] {
   return out;
 }
 
+function parseDs(operands: string[]): { count: string; fill: string } {
+  if (operands.length !== 1)
+    throw new Error("DS takes one operand: count [(fill)]");
+  const m = operands[0].match(/^(.+?)\s+\((.+)\)\s*$/);
+  if (m) return { count: m[1], fill: m[2] };
+  return { count: operands[0], fill: "0" };
+}
+
+function dsBytes(operands: string[], symbols: Map<string, number>): number[] {
+  const { count, fill } = parseDs(operands);
+  const n = evalExpr(count, symbols);
+  const f = evalExpr(fill, symbols) & 0xff;
+  return new Array(n).fill(f);
+}
+
+function countDs(operands: string[], symbols: Map<string, number>): number {
+  const { count } = parseDs(operands);
+  return evalExpr(count, symbols);
+}
+
 function countDb(operands: string[]): number {
   let n = 0;
   for (const op of operands) {
@@ -613,6 +634,10 @@ export function asm(source: string): Section[] {
         }
         if (m === "DW") {
           pc += parts.operands.length * 2;
+          continue;
+        }
+        if (m === "DS") {
+          pc += countDs(parts.operands, symbols);
           continue;
         }
         pc += instrSize(m);
@@ -672,7 +697,9 @@ export function asm(source: string): Section[] {
             ? dbBytes(parts.operands, symbols)
             : m === "DW"
               ? dwBytes(parts.operands, symbols)
-              : encode(m, parts.operands, symbols);
+              : m === "DS"
+                ? dsBytes(parts.operands, symbols)
+                : encode(m, parts.operands, symbols);
         current.data.push(...bytes);
       }
     } catch (e) {
@@ -747,6 +774,10 @@ function collectSymbols(lines: string[]): Map<string, number> {
         }
         if (m === "DW") {
           pc += parts.operands.length * 2;
+          continue;
+        }
+        if (m === "DS") {
+          pc += countDs(parts.operands, symbols);
           continue;
         }
         pc += instrSize(m);
@@ -846,6 +877,13 @@ export function listing(source: string): string {
           out.push(fmtLst("", display));
           done = true;
           break;
+        }
+
+        if (m === "DS") {
+          const n = countDs(parts.operands, symbols);
+          out.push(fmtLst(hex4(pc) + ":", display));
+          pc += n;
+          continue;
         }
 
         let bytes =
