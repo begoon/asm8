@@ -128,6 +128,77 @@ const ADDR16: Record<string, number> = {
   SHLD: 0x22,
 };
 
+const ALL_MNEMONICS = new Set<string>([
+  ...Object.keys(IMPLIED),
+  ...Object.keys(ALU_REG),
+  ...Object.keys(ALU_IMM),
+  ...Object.keys(ADDR16),
+  "MOV",
+  "MVI",
+  "INR",
+  "DCR",
+  "LXI",
+  "DAD",
+  "INX",
+  "DCX",
+  "PUSH",
+  "POP",
+  "LDAX",
+  "STAX",
+  "IN",
+  "OUT",
+  "RST",
+  "DB",
+  "DW",
+  "ORG",
+  "SECTION",
+  "END",
+  "EQU",
+]);
+
+const MAX_STATEMENTS_PER_LINE = 10;
+
+function splitStatements(line: string): string[] {
+  const src = stripComment(line);
+  const out: string[] = [];
+  let start = 0;
+  let inQ = false;
+  let qc = "";
+  for (let i = 0; i + 2 < src.length; i++) {
+    const c = src[i];
+    if (inQ) {
+      if (c === qc) inQ = false;
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      inQ = true;
+      qc = c;
+      continue;
+    }
+    if (c !== " " || src[i + 1] !== "/" || src[i + 2] !== " ") continue;
+    let j = i + 3;
+    while (j < src.length && src[j] === " ") j++;
+    let tokStart = j;
+    if (src[j] === ".") j++;
+    let tokEnd = j;
+    while (tokEnd < src.length && /\w/.test(src[tokEnd])) tokEnd++;
+    if (tokEnd === j) continue;
+    let tok = src.slice(tokStart, tokEnd).toUpperCase();
+    if (tok.startsWith(".")) tok = tok.slice(1);
+    if (!ALL_MNEMONICS.has(tok)) continue;
+    out.push(src.slice(start, i));
+    start = i + 2;
+    i += 2;
+  }
+  out.push(src.slice(start));
+  if (out.length > MAX_STATEMENTS_PER_LINE) {
+    throw new Error(
+      `too many statements on one line (max ${MAX_STATEMENTS_PER_LINE})`,
+    );
+  }
+  return out;
+}
+
 function instrSize(m: string): number {
   if (m in IMPLIED) return 1;
   if (m in ALU_REG) return 1;
@@ -508,38 +579,44 @@ export function asm(source: string): Section[] {
 
   // Pass 1: collect symbols
   let pc = 0;
-  for (let idx = 0; idx < lines.length; idx++) {
+  let ended = false;
+  for (let idx = 0; idx < lines.length && !ended; idx++) {
     const line = lines[idx];
     try {
-      const parts = parseLine(line);
-      if (parts.label) {
-        if (parts.isEqu) {
-          symbols.set(
-            parts.label.toUpperCase(),
-            evalExpr(parts.operands[0], symbols),
-          );
+      for (const stmt of splitStatements(line)) {
+        const parts = parseLine(stmt);
+        if (parts.label) {
+          if (parts.isEqu) {
+            symbols.set(
+              parts.label.toUpperCase(),
+              evalExpr(parts.operands[0], symbols),
+            );
+            continue;
+          }
+          symbols.set(parts.label.toUpperCase(), pc);
+        }
+        if (!parts.mnemonic) continue;
+        const m = parts.mnemonic.toUpperCase();
+        if (m === "EQU") continue;
+        if (m === "ORG") {
+          pc = evalExpr(parts.operands[0], symbols);
           continue;
         }
-        symbols.set(parts.label.toUpperCase(), pc);
+        if (m === "SECTION") continue;
+        if (m === "END") {
+          ended = true;
+          break;
+        }
+        if (m === "DB") {
+          pc += countDb(parts.operands);
+          continue;
+        }
+        if (m === "DW") {
+          pc += parts.operands.length * 2;
+          continue;
+        }
+        pc += instrSize(m);
       }
-      if (!parts.mnemonic) continue;
-      const m = parts.mnemonic.toUpperCase();
-      if (m === "EQU") continue;
-      if (m === "ORG") {
-        pc = evalExpr(parts.operands[0], symbols);
-        continue;
-      }
-      if (m === "SECTION") continue;
-      if (m === "END") break;
-      if (m === "DB") {
-        pc += countDb(parts.operands);
-        continue;
-      }
-      if (m === "DW") {
-        pc += parts.operands.length * 2;
-        continue;
-      }
-      pc += instrSize(m);
     } catch (e) {
       if (e instanceof AsmError) throw e;
       throw new AsmError(
@@ -556,42 +633,48 @@ export function asm(source: string): Section[] {
   let current: Section | null = null;
   const sectionNames = new Set<string>();
 
-  for (let idx = 0; idx < lines.length; idx++) {
+  let endedPass2 = false;
+  for (let idx = 0; idx < lines.length && !endedPass2; idx++) {
     const line = lines[idx];
     try {
-      const parts = parseLine(line);
-      if (parts.isEqu || !parts.mnemonic) continue;
-      const m = parts.mnemonic.toUpperCase();
-      if (m === "EQU") continue;
-      if (m === "ORG") {
-        if (current && current.data.length) {
-          current.end = current.start + current.data.length - 1;
-          sections.push(current);
+      for (const stmt of splitStatements(line)) {
+        const parts = parseLine(stmt);
+        if (parts.isEqu || !parts.mnemonic) continue;
+        const m = parts.mnemonic.toUpperCase();
+        if (m === "EQU") continue;
+        if (m === "ORG") {
+          if (current && current.data.length) {
+            current.end = current.start + current.data.length - 1;
+            sections.push(current);
+          }
+          const addr = evalExpr(parts.operands[0], symbols);
+          current = { start: addr, end: addr, data: [] };
+          continue;
         }
-        const addr = evalExpr(parts.operands[0], symbols);
-        current = { start: addr, end: addr, data: [] };
-        continue;
-      }
-      if (m === "SECTION") {
-        if (!current) throw new Error("SECTION before ORG");
-        const name = parts.operands[0];
-        if (!name) throw new Error("SECTION requires a name");
-        if (sectionNames.has(name.toUpperCase()))
-          throw new Error(`duplicate section name: ${name}`);
-        sectionNames.add(name.toUpperCase());
-        current.name = name;
-        continue;
-      }
-      if (m === "END") break;
-      if (!current) throw new Error("code before ORG");
+        if (m === "SECTION") {
+          if (!current) throw new Error("SECTION before ORG");
+          const name = parts.operands[0];
+          if (!name) throw new Error("SECTION requires a name");
+          if (sectionNames.has(name.toUpperCase()))
+            throw new Error(`duplicate section name: ${name}`);
+          sectionNames.add(name.toUpperCase());
+          current.name = name;
+          continue;
+        }
+        if (m === "END") {
+          endedPass2 = true;
+          break;
+        }
+        if (!current) throw new Error("code before ORG");
 
-      const bytes =
-        m === "DB"
-          ? dbBytes(parts.operands, symbols)
-          : m === "DW"
-            ? dwBytes(parts.operands, symbols)
-            : encode(m, parts.operands, symbols);
-      current.data.push(...bytes);
+        const bytes =
+          m === "DB"
+            ? dbBytes(parts.operands, symbols)
+            : m === "DW"
+              ? dwBytes(parts.operands, symbols)
+              : encode(m, parts.operands, symbols);
+        current.data.push(...bytes);
+      }
     } catch (e) {
       if (e instanceof AsmError) throw e;
       throw new AsmError(
@@ -630,38 +713,44 @@ function fmtLst(prefix: string, source: string): string {
 function collectSymbols(lines: string[]): Map<string, number> {
   let symbols = new Map<string, number>();
   let pc = 0;
-  for (let idx = 0; idx < lines.length; idx++) {
+  let ended = false;
+  for (let idx = 0; idx < lines.length && !ended; idx++) {
     let line = lines[idx];
     try {
-      let parts = parseLine(line);
-      if (parts.label) {
-        if (parts.isEqu) {
-          symbols.set(
-            parts.label.toUpperCase(),
-            evalExpr(parts.operands[0], symbols),
-          );
+      for (const stmt of splitStatements(line)) {
+        let parts = parseLine(stmt);
+        if (parts.label) {
+          if (parts.isEqu) {
+            symbols.set(
+              parts.label.toUpperCase(),
+              evalExpr(parts.operands[0], symbols),
+            );
+            continue;
+          }
+          symbols.set(parts.label.toUpperCase(), pc);
+        }
+        if (!parts.mnemonic) continue;
+        let m = parts.mnemonic.toUpperCase();
+        if (m === "EQU") continue;
+        if (m === "ORG") {
+          pc = evalExpr(parts.operands[0], symbols);
           continue;
         }
-        symbols.set(parts.label.toUpperCase(), pc);
+        if (m === "SECTION") continue;
+        if (m === "END") {
+          ended = true;
+          break;
+        }
+        if (m === "DB") {
+          pc += countDb(parts.operands);
+          continue;
+        }
+        if (m === "DW") {
+          pc += parts.operands.length * 2;
+          continue;
+        }
+        pc += instrSize(m);
       }
-      if (!parts.mnemonic) continue;
-      let m = parts.mnemonic.toUpperCase();
-      if (m === "EQU") continue;
-      if (m === "ORG") {
-        pc = evalExpr(parts.operands[0], symbols);
-        continue;
-      }
-      if (m === "SECTION") continue;
-      if (m === "END") break;
-      if (m === "DB") {
-        pc += countDb(parts.operands);
-        continue;
-      }
-      if (m === "DW") {
-        pc += parts.operands.length * 2;
-        continue;
-      }
-      pc += instrSize(m);
     } catch (e) {
       if (e instanceof AsmError) throw e;
       throw new AsmError(
@@ -719,58 +808,63 @@ export function listing(source: string): string {
     }
 
     try {
-      let parts = parseLine(line);
+      const statements = splitStatements(line);
+      for (let si = 0; si < statements.length; si++) {
+        const stmt = statements[si];
+        const display = si === 0 ? line : "";
+        let parts = parseLine(stmt);
 
-      if (parts.isEqu) {
-        let val = evalExpr(parts.operands[0], symbols);
-        out.push(fmtLst("=" + hex4(val), line));
-        continue;
-      }
-
-      if (!parts.mnemonic) {
-        if (parts.label) {
-          out.push(fmtLst(hex4(pc) + ":", line));
-        } else {
-          out.push(fmtLst("", line));
+        if (parts.isEqu) {
+          let val = evalExpr(parts.operands[0], symbols);
+          out.push(fmtLst("=" + hex4(val), display));
+          continue;
         }
-        continue;
-      }
 
-      let m = parts.mnemonic.toUpperCase();
+        if (!parts.mnemonic) {
+          if (parts.label) {
+            out.push(fmtLst(hex4(pc) + ":", display));
+          } else if (si === 0) {
+            out.push(fmtLst("", display));
+          }
+          continue;
+        }
 
-      if (m === "ORG") {
-        pc = evalExpr(parts.operands[0], symbols);
-        out.push(fmtLst(hex4(pc) + ":", line));
-        continue;
-      }
+        let m = parts.mnemonic.toUpperCase();
 
-      if (m === "SECTION") {
-        out.push(fmtLst("", line));
-        continue;
-      }
+        if (m === "ORG") {
+          pc = evalExpr(parts.operands[0], symbols);
+          out.push(fmtLst(hex4(pc) + ":", display));
+          continue;
+        }
 
-      if (m === "END") {
-        out.push(fmtLst("", line));
-        done = true;
-        continue;
-      }
+        if (m === "SECTION") {
+          out.push(fmtLst("", display));
+          continue;
+        }
 
-      let bytes =
-        m === "DB"
-          ? dbBytes(parts.operands, symbols)
-          : m === "DW"
-            ? dwBytes(parts.operands, symbols)
-            : encode(m, parts.operands, symbols);
+        if (m === "END") {
+          out.push(fmtLst("", display));
+          done = true;
+          break;
+        }
 
-      for (let i = 0; i < bytes.length; i += 4) {
-        let chunk = bytes.slice(i, i + 4);
-        let prefix = hex4(pc + i) + ": " + chunk.map(hex2).join(" ");
-        out.push(fmtLst(prefix, i === 0 ? line : ""));
+        let bytes =
+          m === "DB"
+            ? dbBytes(parts.operands, symbols)
+            : m === "DW"
+              ? dwBytes(parts.operands, symbols)
+              : encode(m, parts.operands, symbols);
+
+        for (let i = 0; i < bytes.length; i += 4) {
+          let chunk = bytes.slice(i, i + 4);
+          let prefix = hex4(pc + i) + ": " + chunk.map(hex2).join(" ");
+          out.push(fmtLst(prefix, i === 0 ? display : ""));
+        }
+        if (bytes.length === 0) {
+          out.push(fmtLst(hex4(pc) + ":", display));
+        }
+        pc += bytes.length;
       }
-      if (bytes.length === 0) {
-        out.push(fmtLst(hex4(pc) + ":", line));
-      }
-      pc += bytes.length;
     } catch (e) {
       if (e instanceof AsmError) throw e;
       throw new AsmError(
