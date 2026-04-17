@@ -1,6 +1,6 @@
 {
   "name": "asm8080",
-  "version": "1.0.15",
+  "version": "1.0.16",
   "description": "Intel 8080 two-pass assembler",
   "type": "module",
   "main": "./dist/asm8.js",
