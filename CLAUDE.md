@@ -37,7 +37,7 @@ Expressions use a recursive descent parser with C operator precedence:
 ## CLI flags
 
 - `--split` — one file per section (`name.bin` or `XXXX-XXXX.bin`)
-- `-l` — generate listing file (`.lst`) with addresses, hex bytes, source, and symbol table
+- `-l` — generate listing (`.lst`) with addresses/hex bytes/source, symbol table (`.sym`), and section map (`.map`)
 - `-o <dir>` — output directory (created if needed)
 - `-v` — print version from package.json
 - `-h` — help

@@ -627,11 +627,8 @@ function fmtLst(prefix: string, source: string): string {
   return (padded + source).trimEnd();
 }
 
-export function listing(source: string): string {
-  let lines = source.split("\n");
+function collectSymbols(lines: string[]): Map<string, number> {
   let symbols = new Map<string, number>();
-
-  // Pass 1: collect symbols
   let pc = 0;
   for (let idx = 0; idx < lines.length; idx++) {
     let line = lines[idx];
@@ -675,10 +672,43 @@ export function listing(source: string): string {
       );
     }
   }
+  return symbols;
+}
+
+export function symbolTable(source: string): string {
+  let symbols = collectSymbols(source.split("\n"));
+  let out: string[] = [];
+  let sorted = [...symbols.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  for (let [name, val] of sorted) {
+    out.push(`${name.padEnd(24)} ${hex4(val)}`);
+  }
+  return out.join("\n");
+}
+
+export function sectionMap(sections: Section[]): string {
+  let out: string[] = [];
+  let total = 0;
+  let sorted = [...sections].sort((a, b) => a.start - b.start);
+  for (const s of sorted) {
+    let line = `${hex4(s.start)}-${hex4(s.end)}  ${String(s.data.length).padStart(5)} bytes`;
+    if (s.name) line += `  ${s.name}`;
+    out.push(line);
+    total += s.data.length;
+  }
+  out.push("");
+  out.push(
+    `Total: ${total} bytes in ${sections.length} section${sections.length === 1 ? "" : "s"}`,
+  );
+  return out.join("\n");
+}
+
+export function listing(source: string): string {
+  let lines = source.split("\n");
+  let symbols = collectSymbols(lines);
 
   // Pass 2: generate listing
   let out: string[] = [];
-  pc = 0;
+  let pc = 0;
   let done = false;
 
   for (let idx = 0; idx < lines.length; idx++) {
@@ -752,15 +782,6 @@ export function listing(source: string): string {
     }
   }
 
-  // Symbol table
-  out.push("");
-  out.push("Symbol Table:");
-  out.push("");
-  let sorted = [...symbols.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  for (let [name, val] of sorted) {
-    out.push(`${name.padEnd(24)} ${hex4(val)}`);
-  }
-
   return out.join("\n");
 }
 
@@ -816,8 +837,9 @@ export function cli() {
 Usage: asm8080 <source.asm> [options]
 
 Options:
-  --split    write each section as a separate file (name.bin or XXXX-XXXX.bin)
-  -l         generate listing file (.lst)
+  --split    write each section as <base>-<name>.bin (or <base>-XXXX-XXXX.bin);
+             if there is only one section, write <base>.bin
+  -l         generate listing (.lst), symbol table (.sym), and section map (.map) files
   -o <dir>   output directory (default: current directory)
   -v         show version
   -h         show this help`);
@@ -850,34 +872,53 @@ Options:
   }
 
   for (const s of sections) {
-    const lo = s.start.toString(16).toUpperCase().padStart(4, "0");
-    const hi = s.end.toString(16).toUpperCase().padStart(4, "0");
-    console.log(`${lo}-${hi}  ${s.data.length} bytes`);
+    console.log(`${hex4(s.start)}-${hex4(s.end)}  ${s.data.length} bytes`);
   }
 
+  let base = basename(file).replace(/\.[^.]+$/, "");
+
   if (split) {
-    for (const s of sections) {
-      let name: string;
-      if (s.name) {
-        name = s.name;
-      } else {
-        const lo = s.start.toString(16).toUpperCase().padStart(4, "0");
-        const hi = s.end.toString(16).toUpperCase().padStart(4, "0");
-        name = `${lo}-${hi}`;
+    if (sections.length === 1) {
+      let path = join(outDir, `${base}.bin`);
+      writeFileSync(path, new Uint8Array(sections[0].data));
+      console.log(path);
+    } else {
+      for (const s of sections) {
+        let suffix = s.name ?? `${hex4(s.start)}-${hex4(s.end)}`;
+        let path = join(outDir, `${base}-${suffix}.bin`);
+        writeFileSync(path, new Uint8Array(s.data));
+        console.log(path);
       }
-      writeFileSync(join(outDir, `${name}.bin`), new Uint8Array(s.data));
     }
-  } else {
-    const buf = new Uint8Array(65536);
+  } else if (sections.length > 0) {
+    const sorted = [...sections].sort((a, b) => a.start - b.start);
+    for (let i = 1; i < sorted.length; i++) {
+      if (sorted[i].start <= sorted[i - 1].end) {
+        console.error(
+          `${file}: error: sections overlap: ` +
+            `${hex4(sorted[i - 1].start)}-${hex4(sorted[i - 1].end)} and ` +
+            `${hex4(sorted[i].start)}-${hex4(sorted[i].end)}`,
+        );
+        process.exit(1);
+      }
+    }
+    const maxEnd = sorted[sorted.length - 1].end;
+    const buf = new Uint8Array(maxEnd + 1);
     for (const s of sections) buf.set(s.data, s.start);
-    writeFileSync(join(outDir, "0000-FFFF.bin"), buf);
+    let path = join(outDir, `${base}.bin`);
+    writeFileSync(path, buf);
+    console.log(path);
   }
 
   if (lst) {
-    let lstName = basename(file).replace(/\.[^.]+$/, "") + ".lst";
-    let lstPath = join(outDir, lstName);
+    let base = basename(file).replace(/\.[^.]+$/, "");
+    let lstPath = join(outDir, base + ".lst");
+    let symPath = join(outDir, base + ".sym");
+    let mapPath = join(outDir, base + ".map");
     try {
       writeFileSync(lstPath, listing(source) + "\n");
+      writeFileSync(symPath, symbolTable(source) + "\n");
+      writeFileSync(mapPath, sectionMap(sections) + "\n");
     } catch (e) {
       if (e instanceof AsmError) {
         printAsmError(file, e);
@@ -886,6 +927,8 @@ Options:
       throw e;
     }
     console.log(lstPath);
+    console.log(symPath);
+    console.log(mapPath);
   }
 }
 

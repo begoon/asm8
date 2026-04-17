@@ -21,13 +21,13 @@ bunx asm8080 <source.asm> [--split] [-l] [-o <dir>]
 
 Options:
 
-- `--split` — one file per section (`name.bin` or `XXXX-XXXX.bin`)
-- `-l` — generate listing file (`.lst`)
+- `--split` — one file per section, named `<base>-<sectionname>.bin` (or `<base>-XXXX-XXXX.bin` for unnamed sections). If there is only one section, it's written as `<base>.bin`.
+- `-l` — generate listing (`.lst`), symbol table (`.sym`), and section map (`.map`) files
 - `-o <dir>` — output directory (created if needed)
 - `-v`, `--version` — print version
 - `-h`, `--help` — show help
 
-Default output is a single 64 KB file `0000-FFFF.bin` with sections placed at their addresses. With `--split`, each section is written as a separate file.
+Default output is a single file `<base>.bin` containing all sections placed at their addresses, with zeros filling any gaps (including in front of the first section if its ORG isn't 0). The file is sized to the end of the last section — not padded to 64 KB. Overlapping sections are an error. With `--split`, each section is written as a separate file without padding.
 
 A section map is printed to stdout:
 
@@ -35,16 +35,26 @@ A section map is printed to stdout:
 F800-FFFF  2048 bytes
 ```
 
-With `-l`, a listing file is generated alongside the binary output. Each source line is prefixed with its address and emitted bytes, and a symbol table is appended:
+With `-l`, a listing file (`.lst`) and a symbol table file (`.sym`) are generated alongside the binary output. Each source line in `.lst` is prefixed with its address and emitted bytes:
 
 ```text
 F800: C3 36 F8      start:           jmp  entry_start
 F803: 3E 8A                          mvi  a, 8Ah
+```
 
-Symbol Table:
+The `.sym` file contains one symbol per line, sorted alphabetically:
 
+```text
 ENTRY_START              F836
 START                    F800
+```
+
+The `.map` file summarizes the section layout:
+
+```text
+F800-FFFF   2048 bytes
+
+Total: 2048 bytes in 1 section
 ```
 
 ## API

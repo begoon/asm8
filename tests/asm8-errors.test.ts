@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { asm, AsmError, listing } from "../asm8";
+import { asm, AsmError, listing, sectionMap, symbolTable } from "../asm8";
 
 function catchAsm(source: string): AsmError {
   try {
@@ -89,5 +89,66 @@ describe("AsmError reporting", () => {
   test("valid source does not throw", () => {
     const src = ["org 0", "  hlt", "  end"].join("\n");
     expect(() => asm(src)).not.toThrow();
+  });
+
+  test("symbolTable() wraps errors as AsmError", () => {
+    const src = ["org 0", "FOO equ BAR", "hlt"].join("\n");
+    let caught: unknown;
+    try {
+      symbolTable(src);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(AsmError);
+    expect((caught as AsmError).line).toBe(2);
+    expect((caught as AsmError).message).toBe("unknown symbol: BAR");
+  });
+
+  test("listing() no longer contains Symbol Table section", () => {
+    const src = ["org 0", "FOO equ 42", "start: hlt"].join("\n");
+    const out = listing(src);
+    expect(out).not.toContain("Symbol Table");
+    expect(out).not.toMatch(/^FOO\s+002A$/m);
+    expect(out).not.toMatch(/^START\s+0000$/m);
+  });
+
+  test("sectionMap() lists sections sorted with totals", () => {
+    const src = [
+      "org 0200h",
+      "section data",
+      'db "hello"',
+      "org 0100h",
+      "section code",
+      "hlt",
+      "end",
+    ].join("\n");
+    const sections = asm(src);
+    const out = sectionMap(sections);
+    const lines = out.split("\n");
+    expect(lines[0]).toBe("0100-0100      1 bytes  code");
+    expect(lines[1]).toBe("0200-0204      5 bytes  data");
+    expect(lines[2]).toBe("");
+    expect(lines[3]).toBe("Total: 6 bytes in 2 sections");
+  });
+
+  test("sectionMap() omits name for unnamed sections and uses singular", () => {
+    const src = ["org 0100h", "db 1,2,3", "end"].join("\n");
+    const out = sectionMap(asm(src));
+    expect(out).toBe(
+      ["0100-0102      3 bytes", "", "Total: 3 bytes in 1 section"].join("\n"),
+    );
+  });
+
+  test("symbolTable() lists symbols sorted with hex4 values", () => {
+    const src = ["org 0100h", "ZED equ 42", "start: hlt", "alpha: hlt"].join(
+      "\n",
+    );
+    const out = symbolTable(src);
+    const lines = out.split("\n");
+    expect(lines).toEqual([
+      "ALPHA                    0101",
+      "START                    0100",
+      "ZED                      002A",
+    ]);
   });
 });

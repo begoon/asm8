@@ -3,3 +3,6 @@ dist
 .claude/settings.local.json
 ????-????.bin
 monitor.lst
+*.sym
+*.lst
+*.map
