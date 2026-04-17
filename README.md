@@ -15,9 +15,11 @@ npm install asm8080
 Run directly from npm (no install required):
 
 ```sh
-npx asm8080 <source.asm> [--split] [-l] [-o <dir>]
-bunx asm8080 <source.asm> [--split] [-l] [-o <dir>]
+npx asm8080 <source.asm> [more.asm ...] [--split] [-l] [-o <dir>]
+bunx asm8080 <source.asm> [more.asm ...] [--split] [-l] [-o <dir>]
 ```
+
+Multiple input files are concatenated in the order given and assembled as if they were one file. The first filename determines the output `<base>`.
 
 Options:
 
@@ -73,7 +75,7 @@ Each `org` directive creates a new section. The `section name` directive names i
 - Two-pass assembly (forward references resolved automatically)
 - Case-insensitive mnemonics, registers, and symbols
 - All documented Intel 8080 instructions
-- Directives: `org`, `section`, `db`, `dw`, `equ`, `end`
+- Directives: `org`, `section`, `db`, `dw`, `equ`, `end` — each may also be written with a leading dot (`.org`, `.db`, etc.) for compatibility with other assemblers
 - Number formats: decimal (`255`), hex with `h` suffix (`0FFh`)
 - Character literals: `'A'` (usable anywhere a byte value is expected)
 - Strings in `db`: `db "hello"` or `db 'hello'`

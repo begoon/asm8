@@ -928,7 +928,10 @@ export function cli() {
   if (flag(args, "-h") || flag(args, "--help")) {
     console.log(`asm8080 - Intel 8080 two-pass assembler
 
-Usage: asm8080 <source.asm> [options]
+Usage: asm8080 <source.asm> [more.asm ...] [options]
+
+Multiple input files are concatenated in argument order as if they were
+one file; the first filename determines the output <base> name.
 
 Options:
   --split    write each section as <base>-<name>.bin (or <base>-XXXX-XXXX.bin);
@@ -946,13 +949,16 @@ Options:
   let split = flag(args, "--split");
   let lst = flag(args, "-l");
 
-  const file = args[0];
-  if (!file) {
-    console.error("Usage: asm8080 <source.asm> [--split] [-l] [-o <dir>]");
+  const files = args;
+  if (files.length === 0) {
+    console.error(
+      "Usage: asm8080 <source.asm> [more.asm ...] [--split] [-l] [-o <dir>]",
+    );
     process.exit(1);
   }
+  const file = files[0];
 
-  const source = readFileSync(file, "utf-8");
+  const source = files.map((f) => readFileSync(f, "utf-8")).join("\n");
 
   let sections: Section[];
   try {

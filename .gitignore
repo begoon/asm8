@@ -6,3 +6,4 @@ monitor.lst
 *.sym
 *.lst
 *.map
+.test-tmp-cli
