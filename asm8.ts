@@ -275,7 +275,7 @@ function parseLine(line: string): ParsedLine {
 
   let label: string | undefined;
   const ci = s.indexOf(":");
-  if (ci > 0 && /^(?:[A-Za-z_]\w*|@\w+)$/.test(s.slice(0, ci).trim())) {
+  if (ci > 0 && /^(?:[A-Za-z_]\w*|@\w+|\.\w+)$/.test(s.slice(0, ci).trim())) {
     label = s.slice(0, ci).trim();
     s = s.slice(ci + 1).trim();
   }
@@ -332,6 +332,14 @@ function tokenizeExpr(expr: string): Token[] {
       let j = i + 1;
       while (j < expr.length && /\w/.test(expr[j])) j++;
       if (j === i + 1) throw new Error("expected identifier after '@'");
+      tokens.push({ kind: "id", val: expr.slice(i, j) });
+      i = j;
+      continue;
+    }
+    if (c === ".") {
+      let j = i + 1;
+      while (j < expr.length && /\w/.test(expr[j])) j++;
+      if (j === i + 1) throw new Error("expected identifier after '.'");
       tokens.push({ kind: "id", val: expr.slice(i, j) });
       i = j;
       continue;
@@ -416,7 +424,7 @@ function evalExpr(
         return upper === "LOW" ? v & 0xff : (v >> 8) & 0xff;
       }
       let name = raw;
-      if (name.startsWith("@")) {
+      if (name.startsWith("@") || name.startsWith(".")) {
         if (!lastLabel) throw new Error(`local label without scope: ${raw}`);
         name = lastLabel + name;
       }
@@ -660,13 +668,13 @@ export function asm(source: string): Section[] {
         const parts = parseLine(stmt);
         if (parts.label) {
           let labelName = parts.label;
-          if (labelName.startsWith("@")) {
+          if (labelName.startsWith("@") || labelName.startsWith(".")) {
             if (!lastLabel)
               throw new Error(
                 `local label without preceding normal label: ${labelName}`,
               );
             labelName = lastLabel + labelName;
-          } else {
+          } else if (!parts.isEqu) {
             lastLabel = parts.label;
           }
           if (parts.isEqu) {
@@ -727,7 +735,12 @@ export function asm(source: string): Section[] {
     try {
       for (const stmt of splitStatements(line)) {
         const parts = parseLine(stmt);
-        if (parts.label && !parts.label.startsWith("@")) {
+        if (
+          parts.label &&
+          !parts.label.startsWith("@") &&
+          !parts.label.startsWith(".") &&
+          !parts.isEqu
+        ) {
           lastLabel2 = parts.label;
         }
         if (parts.isEqu || !parts.mnemonic) continue;
@@ -816,13 +829,13 @@ function collectSymbols(lines: string[]): Map<string, number> {
         let parts = parseLine(stmt);
         if (parts.label) {
           let labelName = parts.label;
-          if (labelName.startsWith("@")) {
+          if (labelName.startsWith("@") || labelName.startsWith(".")) {
             if (!lastLabel)
               throw new Error(
                 `local label without preceding normal label: ${labelName}`,
               );
             labelName = lastLabel + labelName;
-          } else {
+          } else if (!parts.isEqu) {
             lastLabel = parts.label;
           }
           if (parts.isEqu) {
@@ -924,7 +937,12 @@ export function listing(source: string): string {
         const display = si === 0 ? line : "";
         let parts = parseLine(stmt);
 
-        if (parts.label && !parts.label.startsWith("@")) {
+        if (
+          parts.label &&
+          !parts.label.startsWith("@") &&
+          !parts.label.startsWith(".") &&
+          !parts.isEqu
+        ) {
           lastLabel = parts.label;
         }
 

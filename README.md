@@ -83,13 +83,19 @@ Each `org` directive creates a new section. The `section name` directive names i
 - Expressions: `+`, `-`, `*`, `/`, `%`, `|`, `&`, `^`, `~`, `<<`, `>>`, `()` with C precedence
 - `LOW(expr)` / `HIGH(expr)` — extract low or high byte of a 16-bit value
 - `$` — current address (at the start of the current instruction or directive)
-- Local labels: `@name:` — scoped to the most recent non-local label. `foo: ... @loop:` defines the symbol `foo@loop`. Within `foo`'s scope, `jmp @loop` resolves to that symbol. A colon is required, just as for normal labels.
+- Local labels: `@name:` or `.name:` — scoped to the most recent non-local label. `foo: ... @loop:` defines the symbol `foo@loop`; `foo: ... .loop:` defines `foo.loop`. Within `foo`'s scope, `jmp @loop` / `jmp .loop` resolves to that symbol. A colon is required, just as for normal labels (this also disambiguates `.loop:` from directives like `.org` / `.db`).
 
   ```
   delay:
             mvi b, 10
   @loop:    dcr b
             jnz @loop
+            ret
+
+  delay2:
+            mvi b, 10
+  .loop:    dcr b
+            jnz .loop
             ret
   ```
 

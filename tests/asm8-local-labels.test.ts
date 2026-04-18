@@ -91,6 +91,203 @@ describe("local labels", () => {
     const e = catchAsm(src);
     expect(e.message).toBe("expected identifier after '@'");
   });
+
+  test("dot-prefixed local label with colon", () => {
+    const src = [
+      "  org 0",
+      "foo:",
+      "  nop",
+      ".loop:",
+      "  ret",
+      "  jz .loop",
+      "  end",
+    ].join("\n");
+    const sections = asm(src);
+    expect(sections[0].data).toEqual([0x00, 0xc9, 0xca, 0x01, 0x00]);
+  });
+
+  test("dot-prefixed local label stored as normal.local", () => {
+    const src = ["  org 100h", "foo:", "  nop", ".end:", "  ret", "  end"].join(
+      "\n",
+    );
+    const tbl = symbolTable(src);
+    expect(tbl).toContain("FOO                      0100");
+    expect(tbl).toContain("FOO.END                  0101");
+  });
+
+  test("same dot-local name under different scopes", () => {
+    const src = [
+      "  org 0",
+      "alpha:",
+      "  nop",
+      ".loop:",
+      "  jmp .loop",
+      "beta:",
+      "  nop",
+      ".loop:",
+      "  jmp .loop",
+      "  end",
+    ].join("\n");
+    const sections = asm(src);
+    expect(sections[0].data).toEqual([
+      0x00, 0xc3, 0x01, 0x00, 0x00, 0xc3, 0x05, 0x00,
+    ]);
+  });
+
+  test("dot-local before any normal label errors", () => {
+    const src = ["  org 0", ".loop:", "  ret", "  end"].join("\n");
+    const e = catchAsm(src);
+    expect(e.message).toBe("local label without preceding normal label: .loop");
+    expect(e.line).toBe(2);
+  });
+
+  test("referencing dot-local without scope errors", () => {
+    const src = ["  org 0", "  jz .loop", "  end"].join("\n");
+    const e = catchAsm(src);
+    expect(e.message).toBe("local label without scope: .loop");
+    expect(e.line).toBe(2);
+  });
+
+  test("expected identifier after .", () => {
+    const src = ["  org 0", "  mvi a, .", "  end"].join("\n");
+    const e = catchAsm(src);
+    expect(e.message).toBe("expected identifier after '.'");
+  });
+
+  test(".org directive still works alongside dot-local labels", () => {
+    const src = [
+      "  .org 100h",
+      "foo:",
+      "  nop",
+      ".skip:",
+      "  jmp .skip",
+      "  .end",
+    ].join("\n");
+    const sections = asm(src);
+    expect(sections[0].start).toBe(0x100);
+    expect(sections[0].data).toEqual([0x00, 0xc3, 0x01, 0x01]);
+  });
+
+  test("mixing @ and . locals in the same scope", () => {
+    const src = [
+      "  org 0",
+      "foo:",
+      "@a:",
+      "  nop",
+      ".b:",
+      "  jmp @a",
+      "  jmp .b",
+      "  end",
+    ].join("\n");
+    const sections = asm(src);
+    // @a=0, nop at 0, .b=1, jmp @a -> c3 00 00, jmp .b -> c3 01 00
+    expect(sections[0].data).toEqual([
+      0x00, 0xc3, 0x00, 0x00, 0xc3, 0x01, 0x00,
+    ]);
+    const tbl = symbolTable(src);
+    expect(tbl).toContain("FOO@A");
+    expect(tbl).toContain("FOO.B");
+  });
+
+  test("forward reference to dot-local", () => {
+    const src = [
+      "  org 0",
+      "foo:",
+      "  jmp .end",
+      "  nop",
+      ".end:",
+      "  ret",
+      "  end",
+    ].join("\n");
+    const sections = asm(src);
+    // jmp .end -> c3 04 00 (.end is at pc=4), nop at 3, ret at 4
+    expect(sections[0].data).toEqual([0xc3, 0x04, 0x00, 0x00, 0xc9]);
+  });
+
+  test("dot-local in expression arithmetic", () => {
+    const src = [
+      "  org 0",
+      "foo:",
+      ".start:",
+      "  nop",
+      "  nop",
+      "  nop",
+      "len equ $ - .start",
+      "  mvi a, len",
+      "  end",
+    ].join("\n");
+    const sections = asm(src);
+    // 3 nops, then mvi a, 3 -> 3e 03
+    expect(sections[0].data).toEqual([0x00, 0x00, 0x00, 0x3e, 0x03]);
+  });
+
+  test("dot-local in db and dw operands", () => {
+    const src = [
+      "  org 100h",
+      "foo:",
+      "  nop",
+      ".here:",
+      "  dw .here",
+      "  db low(.here), high(.here)",
+      "  end",
+    ].join("\n");
+    const sections = asm(src);
+    // nop at 100, .here=101, dw .here -> 01 01, db low/high of 0x101 -> 01 01
+    expect(sections[0].data).toEqual([0x00, 0x01, 0x01, 0x01, 0x01]);
+  });
+
+  test("dot-local survives statement splitting on /", () => {
+    const src = ["  org 0", "foo:", ".loop: / nop / jmp .loop", "  end"].join(
+      "\n",
+    );
+    const sections = asm(src);
+    // .loop=0, nop at 0, jmp .loop -> c3 00 00
+    expect(sections[0].data).toEqual([0x00, 0xc3, 0x00, 0x00]);
+  });
+
+  test("dot-local with numeric suffix", () => {
+    const src = ["  org 0", "foo:", ".0:", "  nop", "  jmp .0", "  end"].join(
+      "\n",
+    );
+    const sections = asm(src);
+    expect(sections[0].data).toEqual([0x00, 0xc3, 0x00, 0x00]);
+  });
+
+  test("dot-local can be referenced in equ value", () => {
+    const src = [
+      "  org 0",
+      "foo:",
+      ".target:",
+      "  nop",
+      "alias equ .target",
+      "  jmp alias",
+      "  end",
+    ].join("\n");
+    const sections = asm(src);
+    expect(sections[0].data).toEqual([0x00, 0xc3, 0x00, 0x00]);
+  });
+
+  test("dot-local does not become the new scope for following @ locals", () => {
+    // ensure that dot-locals (like @-locals) don't reset lastLabel
+    const src = [
+      "  org 0",
+      "foo:",
+      ".a:",
+      "  nop",
+      "@b:",
+      "  jmp @b", // should resolve to foo@b, not .a@b
+      "  jmp .a", // should still resolve to foo.a
+      "  end",
+    ].join("\n");
+    const sections = asm(src);
+    expect(sections[0].data).toEqual([
+      0x00, 0xc3, 0x01, 0x00, 0xc3, 0x00, 0x00,
+    ]);
+    const tbl = symbolTable(src);
+    expect(tbl).toContain("FOO.A");
+    expect(tbl).toContain("FOO@B");
+    expect(tbl).not.toContain(".A@B");
+  });
 });
 
 describe("$ current address", () => {
