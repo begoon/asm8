@@ -275,7 +275,7 @@ function parseLine(line: string): ParsedLine {
 
   let label: string | undefined;
   const ci = s.indexOf(":");
-  if (ci > 0 && /^[A-Za-z_]\w*$/.test(s.slice(0, ci).trim())) {
+  if (ci > 0 && /^(?:[A-Za-z_]\w*|@\w+)$/.test(s.slice(0, ci).trim())) {
     label = s.slice(0, ci).trim();
     s = s.slice(ci + 1).trim();
   }
@@ -323,6 +323,19 @@ function tokenizeExpr(expr: string): Token[] {
       i += 3;
       continue;
     }
+    if (c === "$") {
+      tokens.push({ kind: "id", val: "$" });
+      i++;
+      continue;
+    }
+    if (c === "@") {
+      let j = i + 1;
+      while (j < expr.length && /\w/.test(expr[j])) j++;
+      if (j === i + 1) throw new Error("expected identifier after '@'");
+      tokens.push({ kind: "id", val: expr.slice(i, j) });
+      i = j;
+      continue;
+    }
     if (/[0-9]/.test(c)) {
       let j = i;
       while (j < expr.length && /[0-9A-Fa-f]/.test(expr[j])) j++;
@@ -362,7 +375,12 @@ function tokenizeExpr(expr: string): Token[] {
   return tokens;
 }
 
-function evalExpr(expr: string, symbols: Map<string, number>): number {
+function evalExpr(
+  expr: string,
+  symbols: Map<string, number>,
+  pc = 0,
+  lastLabel = "",
+): number {
   const tokens = tokenizeExpr(expr);
   let pos = 0;
 
@@ -386,17 +404,25 @@ function evalExpr(expr: string, symbols: Map<string, number>): number {
     }
     if (t.kind === "id") {
       next();
-      const k = (t.val as string).toUpperCase();
-      if (k === "LOW" || k === "HIGH") {
-        if (!isOp("(")) throw new Error(`${k} requires parentheses`);
+      const raw = t.val as string;
+      if (raw === "$") return pc;
+      const upper = raw.toUpperCase();
+      if (upper === "LOW" || upper === "HIGH") {
+        if (!isOp("(")) throw new Error(`${upper} requires parentheses`);
         next();
         const v = parseOr();
         if (!isOp(")")) throw new Error("expected ')'");
         next();
-        return k === "LOW" ? v & 0xff : (v >> 8) & 0xff;
+        return upper === "LOW" ? v & 0xff : (v >> 8) & 0xff;
       }
+      let name = raw;
+      if (name.startsWith("@")) {
+        if (!lastLabel) throw new Error(`local label without scope: ${raw}`);
+        name = lastLabel + name;
+      }
+      const k = name.toUpperCase();
       if (symbols.has(k)) return symbols.get(k)!;
-      throw new Error(`unknown symbol: ${t.val}`);
+      throw new Error(`unknown symbol: ${raw}`);
     }
     if (t.kind === "op" && t.val === "(") {
       next();
@@ -493,12 +519,15 @@ function encode(
   m: string,
   ops: string[],
   symbols: Map<string, number>,
+  pc = 0,
+  lastLabel = "",
 ): number[] {
   if (m in IMPLIED) return [IMPLIED[m]];
   if (m in ALU_REG) return [ALU_REG[m] | REG8[ops[0].toUpperCase()]];
-  if (m in ALU_IMM) return [ALU_IMM[m], evalExpr(ops[0], symbols) & 0xff];
+  if (m in ALU_IMM)
+    return [ALU_IMM[m], evalExpr(ops[0], symbols, pc, lastLabel) & 0xff];
   if (m in ADDR16) {
-    const v = evalExpr(ops[0], symbols);
+    const v = evalExpr(ops[0], symbols, pc, lastLabel);
     return [ADDR16[m], v & 0xff, (v >> 8) & 0xff];
   }
 
@@ -507,13 +536,13 @@ function encode(
       0x40 | (REG8[ops[0].toUpperCase()] << 3) | REG8[ops[1].toUpperCase()],
     ];
   if (m === "MVI") {
-    const v = evalExpr(ops[1], symbols);
+    const v = evalExpr(ops[1], symbols, pc, lastLabel);
     return [0x06 | (REG8[ops[0].toUpperCase()] << 3), v & 0xff];
   }
   if (m === "INR") return [0x04 | (REG8[ops[0].toUpperCase()] << 3)];
   if (m === "DCR") return [0x05 | (REG8[ops[0].toUpperCase()] << 3)];
   if (m === "LXI") {
-    const v = evalExpr(ops[1], symbols);
+    const v = evalExpr(ops[1], symbols, pc, lastLabel);
     return [
       0x01 | (REG_PAIR[ops[0].toUpperCase()] << 4),
       v & 0xff,
@@ -527,17 +556,24 @@ function encode(
   if (m === "POP") return [0xc1 | (REG_PAIR_PUSH[ops[0].toUpperCase()] << 4)];
   if (m === "LDAX") return [0x0a | (REG_PAIR[ops[0].toUpperCase()] << 4)];
   if (m === "STAX") return [0x02 | (REG_PAIR[ops[0].toUpperCase()] << 4)];
-  if (m === "IN") return [0xdb, evalExpr(ops[0], symbols) & 0xff];
-  if (m === "OUT") return [0xd3, evalExpr(ops[0], symbols) & 0xff];
+  if (m === "IN")
+    return [0xdb, evalExpr(ops[0], symbols, pc, lastLabel) & 0xff];
+  if (m === "OUT")
+    return [0xd3, evalExpr(ops[0], symbols, pc, lastLabel) & 0xff];
   if (m === "RST") {
-    const n = evalExpr(ops[0], symbols);
+    const n = evalExpr(ops[0], symbols, pc, lastLabel);
     return [0xc7 | (n << 3)];
   }
 
   throw new Error(`cannot encode: ${m} ${ops.join(", ")}`);
 }
 
-function dbBytes(operands: string[], symbols: Map<string, number>): number[] {
+function dbBytes(
+  operands: string[],
+  symbols: Map<string, number>,
+  pc = 0,
+  lastLabel = "",
+): number[] {
   const out: number[] = [];
   for (const op of operands) {
     if (
@@ -546,16 +582,21 @@ function dbBytes(operands: string[], symbols: Map<string, number>): number[] {
     ) {
       for (const ch of op.slice(1, -1)) out.push(ch.charCodeAt(0));
     } else {
-      out.push(evalExpr(op, symbols) & 0xff);
+      out.push(evalExpr(op, symbols, pc, lastLabel) & 0xff);
     }
   }
   return out;
 }
 
-function dwBytes(operands: string[], symbols: Map<string, number>): number[] {
+function dwBytes(
+  operands: string[],
+  symbols: Map<string, number>,
+  pc = 0,
+  lastLabel = "",
+): number[] {
   const out: number[] = [];
   for (const op of operands) {
-    const v = evalExpr(op, symbols) & 0xffff;
+    const v = evalExpr(op, symbols, pc, lastLabel) & 0xffff;
     out.push(v & 0xff, (v >> 8) & 0xff);
   }
   return out;
@@ -569,16 +610,26 @@ function parseDs(operands: string[]): { count: string; fill: string } {
   return { count: operands[0], fill: "0" };
 }
 
-function dsBytes(operands: string[], symbols: Map<string, number>): number[] {
+function dsBytes(
+  operands: string[],
+  symbols: Map<string, number>,
+  pc = 0,
+  lastLabel = "",
+): number[] {
   const { count, fill } = parseDs(operands);
-  const n = evalExpr(count, symbols);
-  const f = evalExpr(fill, symbols) & 0xff;
+  const n = evalExpr(count, symbols, pc, lastLabel);
+  const f = evalExpr(fill, symbols, pc, lastLabel) & 0xff;
   return new Array(n).fill(f);
 }
 
-function countDs(operands: string[], symbols: Map<string, number>): number {
+function countDs(
+  operands: string[],
+  symbols: Map<string, number>,
+  pc = 0,
+  lastLabel = "",
+): number {
   const { count } = parseDs(operands);
-  return evalExpr(count, symbols);
+  return evalExpr(count, symbols, pc, lastLabel);
 }
 
 function countDb(operands: string[]): number {
@@ -600,6 +651,7 @@ export function asm(source: string): Section[] {
 
   // Pass 1: collect symbols
   let pc = 0;
+  let lastLabel = "";
   let ended = false;
   for (let idx = 0; idx < lines.length && !ended; idx++) {
     const line = lines[idx];
@@ -607,20 +659,30 @@ export function asm(source: string): Section[] {
       for (const stmt of splitStatements(line)) {
         const parts = parseLine(stmt);
         if (parts.label) {
+          let labelName = parts.label;
+          if (labelName.startsWith("@")) {
+            if (!lastLabel)
+              throw new Error(
+                `local label without preceding normal label: ${labelName}`,
+              );
+            labelName = lastLabel + labelName;
+          } else {
+            lastLabel = parts.label;
+          }
           if (parts.isEqu) {
             symbols.set(
-              parts.label.toUpperCase(),
-              evalExpr(parts.operands[0], symbols),
+              labelName.toUpperCase(),
+              evalExpr(parts.operands[0], symbols, pc, lastLabel),
             );
             continue;
           }
-          symbols.set(parts.label.toUpperCase(), pc);
+          symbols.set(labelName.toUpperCase(), pc);
         }
         if (!parts.mnemonic) continue;
         const m = parts.mnemonic.toUpperCase();
         if (m === "EQU") continue;
         if (m === "ORG") {
-          pc = evalExpr(parts.operands[0], symbols);
+          pc = evalExpr(parts.operands[0], symbols, pc, lastLabel);
           continue;
         }
         if (m === "SECTION") continue;
@@ -637,7 +699,7 @@ export function asm(source: string): Section[] {
           continue;
         }
         if (m === "DS") {
-          pc += countDs(parts.operands, symbols);
+          pc += countDs(parts.operands, symbols, pc, lastLabel);
           continue;
         }
         pc += instrSize(m);
@@ -657,6 +719,7 @@ export function asm(source: string): Section[] {
   const sections: Section[] = [];
   let current: Section | null = null;
   const sectionNames = new Set<string>();
+  let lastLabel2 = "";
 
   let endedPass2 = false;
   for (let idx = 0; idx < lines.length && !endedPass2; idx++) {
@@ -664,15 +727,19 @@ export function asm(source: string): Section[] {
     try {
       for (const stmt of splitStatements(line)) {
         const parts = parseLine(stmt);
+        if (parts.label && !parts.label.startsWith("@")) {
+          lastLabel2 = parts.label;
+        }
         if (parts.isEqu || !parts.mnemonic) continue;
         const m = parts.mnemonic.toUpperCase();
         if (m === "EQU") continue;
+        const curPc = current ? current.start + current.data.length : 0;
         if (m === "ORG") {
           if (current && current.data.length) {
             current.end = current.start + current.data.length - 1;
             sections.push(current);
           }
-          const addr = evalExpr(parts.operands[0], symbols);
+          const addr = evalExpr(parts.operands[0], symbols, curPc, lastLabel2);
           current = { start: addr, end: addr, data: [] };
           continue;
         }
@@ -694,12 +761,12 @@ export function asm(source: string): Section[] {
 
         const bytes =
           m === "DB"
-            ? dbBytes(parts.operands, symbols)
+            ? dbBytes(parts.operands, symbols, curPc, lastLabel2)
             : m === "DW"
-              ? dwBytes(parts.operands, symbols)
+              ? dwBytes(parts.operands, symbols, curPc, lastLabel2)
               : m === "DS"
-                ? dsBytes(parts.operands, symbols)
-                : encode(m, parts.operands, symbols);
+                ? dsBytes(parts.operands, symbols, curPc, lastLabel2)
+                : encode(m, parts.operands, symbols, curPc, lastLabel2);
         current.data.push(...bytes);
       }
     } catch (e) {
@@ -740,6 +807,7 @@ function fmtLst(prefix: string, source: string): string {
 function collectSymbols(lines: string[]): Map<string, number> {
   let symbols = new Map<string, number>();
   let pc = 0;
+  let lastLabel = "";
   let ended = false;
   for (let idx = 0; idx < lines.length && !ended; idx++) {
     let line = lines[idx];
@@ -747,20 +815,30 @@ function collectSymbols(lines: string[]): Map<string, number> {
       for (const stmt of splitStatements(line)) {
         let parts = parseLine(stmt);
         if (parts.label) {
+          let labelName = parts.label;
+          if (labelName.startsWith("@")) {
+            if (!lastLabel)
+              throw new Error(
+                `local label without preceding normal label: ${labelName}`,
+              );
+            labelName = lastLabel + labelName;
+          } else {
+            lastLabel = parts.label;
+          }
           if (parts.isEqu) {
             symbols.set(
-              parts.label.toUpperCase(),
-              evalExpr(parts.operands[0], symbols),
+              labelName.toUpperCase(),
+              evalExpr(parts.operands[0], symbols, pc, lastLabel),
             );
             continue;
           }
-          symbols.set(parts.label.toUpperCase(), pc);
+          symbols.set(labelName.toUpperCase(), pc);
         }
         if (!parts.mnemonic) continue;
         let m = parts.mnemonic.toUpperCase();
         if (m === "EQU") continue;
         if (m === "ORG") {
-          pc = evalExpr(parts.operands[0], symbols);
+          pc = evalExpr(parts.operands[0], symbols, pc, lastLabel);
           continue;
         }
         if (m === "SECTION") continue;
@@ -777,7 +855,7 @@ function collectSymbols(lines: string[]): Map<string, number> {
           continue;
         }
         if (m === "DS") {
-          pc += countDs(parts.operands, symbols);
+          pc += countDs(parts.operands, symbols, pc, lastLabel);
           continue;
         }
         pc += instrSize(m);
@@ -829,6 +907,7 @@ export function listing(source: string): string {
   // Pass 2: generate listing
   let out: string[] = [];
   let pc = 0;
+  let lastLabel = "";
   let done = false;
 
   for (let idx = 0; idx < lines.length; idx++) {
@@ -845,8 +924,12 @@ export function listing(source: string): string {
         const display = si === 0 ? line : "";
         let parts = parseLine(stmt);
 
+        if (parts.label && !parts.label.startsWith("@")) {
+          lastLabel = parts.label;
+        }
+
         if (parts.isEqu) {
-          let val = evalExpr(parts.operands[0], symbols);
+          let val = evalExpr(parts.operands[0], symbols, pc, lastLabel);
           out.push(fmtLst("=" + hex4(val), display));
           continue;
         }
@@ -863,7 +946,7 @@ export function listing(source: string): string {
         let m = parts.mnemonic.toUpperCase();
 
         if (m === "ORG") {
-          pc = evalExpr(parts.operands[0], symbols);
+          pc = evalExpr(parts.operands[0], symbols, pc, lastLabel);
           out.push(fmtLst(hex4(pc) + ":", display));
           continue;
         }
@@ -880,7 +963,7 @@ export function listing(source: string): string {
         }
 
         if (m === "DS") {
-          const n = countDs(parts.operands, symbols);
+          const n = countDs(parts.operands, symbols, pc, lastLabel);
           out.push(fmtLst(hex4(pc) + ":", display));
           pc += n;
           continue;
@@ -888,10 +971,10 @@ export function listing(source: string): string {
 
         let bytes =
           m === "DB"
-            ? dbBytes(parts.operands, symbols)
+            ? dbBytes(parts.operands, symbols, pc, lastLabel)
             : m === "DW"
-              ? dwBytes(parts.operands, symbols)
-              : encode(m, parts.operands, symbols);
+              ? dwBytes(parts.operands, symbols, pc, lastLabel)
+              : encode(m, parts.operands, symbols, pc, lastLabel);
 
         for (let i = 0; i < bytes.length; i += 4) {
           let chunk = bytes.slice(i, i + 4);

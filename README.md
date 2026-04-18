@@ -82,14 +82,25 @@ Each `org` directive creates a new section. The `section name` directive names i
 - Strings in `db`: `db "hello"` or `db 'hello'`
 - Expressions: `+`, `-`, `*`, `/`, `%`, `|`, `&`, `^`, `~`, `<<`, `>>`, `()` with C precedence
 - `LOW(expr)` / `HIGH(expr)` — extract low or high byte of a 16-bit value
-- Multiple statements per line joined with ` / ` (spaces required on both sides), up to 10 per line:
+- `$` — current address (at the start of the current instruction or directive)
+- Local labels: `@name:` — scoped to the most recent non-local label. `foo: ... @loop:` defines the symbol `foo@loop`. Within `foo`'s scope, `jmp @loop` resolves to that symbol. A colon is required, just as for normal labels.
+
+  ```
+  delay:
+            mvi b, 10
+  @loop:    dcr b
+            jnz @loop
+            ret
+  ```
+
+- Multiple statements per line joined with `/` (spaces required on both sides), up to 10 per line:
 
   ```
   push h / push b / push d
   pop  d / pop  b / pop  h
   ```
 
-  To disambiguate from division, the split only fires when a valid instruction name (or directive, optionally dotted) follows the ` / `. So `mvi a, 10 / 2` is still treated as division (`10 / 2 = 5`).
+  To disambiguate from division, the split only fires when a valid instruction name (or directive, optionally dotted) follows the `/`. So `mvi a, 10 / 2` is still treated as division (`10 / 2 = 5`).
 
 ## Tests
 

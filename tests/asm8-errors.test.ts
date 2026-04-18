@@ -31,9 +31,9 @@ describe("AsmError reporting", () => {
   });
 
   test("unexpected character in expression", () => {
-    const src = ["org 0", "mvi a, @#$", "hlt"].join("\n");
+    const src = ["org 0", "mvi a, ?", "hlt"].join("\n");
     const e = catchAsm(src);
-    expect(e.message).toBe("unexpected character in expression: '@'");
+    expect(e.message).toBe("unexpected character in expression: '?'");
     expect(e.line).toBe(2);
     expect(e.column).toBe(1);
   });
