@@ -187,6 +187,8 @@ interface ProcFrame {
   regs: string[];
   line: number;
   source: string;
+  exitLabel: string;
+  returnUsed: boolean;
 }
 
 const VALID_PROC_REGS = new Set(["PSW", "B", "D", "H"]);
@@ -205,6 +207,7 @@ function preprocess(source: string): PPLine[] {
   const out: PPLine[] = [];
   const stack: IfFrame[] = [];
   let counter = 0;
+  let procCounter = 0;
   let proc: ProcFrame | null = null;
 
   for (let i = 0; i < lines.length; i++) {
@@ -297,7 +300,14 @@ function preprocess(source: string): PPLine[] {
           regs.push(up);
         }
       }
-      proc = { regs, line: orig, source: line };
+      const id = procCounter++;
+      proc = {
+        regs,
+        line: orig,
+        source: line,
+        exitLabel: `__proc_${id}_exit`,
+        returnUsed: false,
+      };
       out.push({ text: `${name}:`, orig });
       for (const r of regs) {
         out.push({ text: `\tPUSH ${r}`, orig });
@@ -325,6 +335,9 @@ function preprocess(source: string): PPLine[] {
           firstNonSpaceCol(line),
         );
       }
+      if (proc.returnUsed) {
+        out.push({ text: `${proc.exitLabel}:`, orig });
+      }
       out.push(...popsAndRet(proc.regs, orig));
       proc = null;
       continue;
@@ -339,7 +352,12 @@ function preprocess(source: string): PPLine[] {
           firstNonSpaceCol(line),
         );
       }
-      out.push(...popsAndRet(proc.regs, orig));
+      if (proc.regs.length === 0) {
+        out.push({ text: `\tRET`, orig });
+      } else {
+        proc.returnUsed = true;
+        out.push({ text: `\tJMP ${proc.exitLabel}`, orig });
+      }
       continue;
     }
 
@@ -885,6 +903,7 @@ export function asm(source: string): Section[] {
   const symbols = new Map<string, number>();
 
   // Pass 1: collect symbols
+  const pending: PendingEqu[] = [];
   let pc = 0;
   let lastLabel = "";
   let ended = false;
@@ -905,9 +924,15 @@ export function asm(source: string): Section[] {
             lastLabel = parts.label;
           }
           if (parts.isEqu) {
-            symbols.set(
-              labelName.toUpperCase(),
-              evalExpr(parts.operands[0], symbols, pc, lastLabel),
+            tryDefineEqu(
+              symbols,
+              pending,
+              labelName,
+              parts.operands[0],
+              pc,
+              lastLabel,
+              orig,
+              line,
             );
             continue;
           }
@@ -949,6 +974,7 @@ export function asm(source: string): Section[] {
       );
     }
   }
+  resolvePendingEqus(symbols, pending);
 
   // Pass 2: emit code
   const sections: Section[] = [];
@@ -1044,8 +1070,89 @@ function fmtLst(prefix: string, source: string): string {
   return (padded + source).trimEnd();
 }
 
+interface PendingEqu {
+  name: string;
+  expr: string;
+  pc: number;
+  lastLabel: string;
+  orig: number;
+  line: string;
+}
+
+function isUnknownSymbolErr(e: unknown): e is Error {
+  return e instanceof Error && /^unknown symbol:/.test(e.message);
+}
+
+function tryDefineEqu(
+  symbols: Map<string, number>,
+  pending: PendingEqu[],
+  name: string,
+  expr: string,
+  pc: number,
+  lastLabel: string,
+  orig: number,
+  line: string,
+): void {
+  try {
+    symbols.set(name.toUpperCase(), evalExpr(expr, symbols, pc, lastLabel));
+  } catch (e) {
+    if (isUnknownSymbolErr(e)) {
+      pending.push({ name, expr, pc, lastLabel, orig, line });
+    } else {
+      throw e;
+    }
+  }
+}
+
+function resolvePendingEqus(
+  symbols: Map<string, number>,
+  pending: PendingEqu[],
+): void {
+  while (pending.length > 0) {
+    let progress = false;
+    const next: PendingEqu[] = [];
+    for (const p of pending) {
+      try {
+        symbols.set(
+          p.name.toUpperCase(),
+          evalExpr(p.expr, symbols, p.pc, p.lastLabel),
+        );
+        progress = true;
+      } catch (e) {
+        if (isUnknownSymbolErr(e)) {
+          next.push(p);
+        } else {
+          throw new AsmError(
+            (e as Error).message,
+            p.orig,
+            p.line,
+            firstNonSpaceCol(p.line),
+          );
+        }
+      }
+    }
+    if (!progress) {
+      const p = next[0];
+      try {
+        evalExpr(p.expr, symbols, p.pc, p.lastLabel);
+      } catch (e) {
+        throw new AsmError(
+          (e as Error).message,
+          p.orig,
+          p.line,
+          firstNonSpaceCol(p.line),
+        );
+      }
+      return;
+    }
+    pending.length = 0;
+    pending.push(...next);
+  }
+}
+
 function collectSymbols(pp: PPLine[]): Map<string, number> {
   let symbols = new Map<string, number>();
+  const pending: PendingEqu[] = [];
   let pc = 0;
   let lastLabel = "";
   let ended = false;
@@ -1066,9 +1173,15 @@ function collectSymbols(pp: PPLine[]): Map<string, number> {
             lastLabel = parts.label;
           }
           if (parts.isEqu) {
-            symbols.set(
-              labelName.toUpperCase(),
-              evalExpr(parts.operands[0], symbols, pc, lastLabel),
+            tryDefineEqu(
+              symbols,
+              pending,
+              labelName,
+              parts.operands[0],
+              pc,
+              lastLabel,
+              orig,
+              line,
             );
             continue;
           }
@@ -1110,6 +1223,7 @@ function collectSymbols(pp: PPLine[]): Map<string, number> {
       );
     }
   }
+  resolvePendingEqus(symbols, pending);
   return symbols;
 }
 
@@ -1140,12 +1254,19 @@ export function sectionMap(sections: Section[]): string {
   return out.join("\n");
 }
 
-export function listing(source: string): string {
+export interface LineInfo {
+  orig: number;
+  prefix: string;
+  display: string;
+  addr?: number;
+  bytes: number[];
+}
+
+export function lineInfo(source: string): LineInfo[] {
   let pp = preprocess(source);
   let symbols = collectSymbols(pp);
 
-  // Pass 2: generate listing
-  let out: string[] = [];
+  let out: LineInfo[] = [];
   let pc = 0;
   let lastLabel = "";
   let done = false;
@@ -1153,7 +1274,7 @@ export function listing(source: string): string {
   for (let idx = 0; idx < pp.length; idx++) {
     let { text: line, orig } = pp[idx];
     if (done) {
-      out.push(fmtLst("", line));
+      out.push({ orig, prefix: "", display: line, bytes: [] });
       continue;
     }
 
@@ -1175,15 +1296,21 @@ export function listing(source: string): string {
 
         if (parts.isEqu) {
           let val = evalExpr(parts.operands[0], symbols, pc, lastLabel);
-          out.push(fmtLst("=" + hex4(val), display));
+          out.push({ orig, prefix: "=" + hex4(val), display, bytes: [] });
           continue;
         }
 
         if (!parts.mnemonic) {
           if (parts.label) {
-            out.push(fmtLst(hex4(pc) + ":", display));
+            out.push({
+              orig,
+              prefix: hex4(pc) + ":",
+              display,
+              addr: pc,
+              bytes: [],
+            });
           } else if (si === 0) {
-            out.push(fmtLst("", display));
+            out.push({ orig, prefix: "", display, bytes: [] });
           }
           continue;
         }
@@ -1192,24 +1319,36 @@ export function listing(source: string): string {
 
         if (m === "ORG") {
           pc = evalExpr(parts.operands[0], symbols, pc, lastLabel);
-          out.push(fmtLst(hex4(pc) + ":", display));
+          out.push({
+            orig,
+            prefix: hex4(pc) + ":",
+            display,
+            addr: pc,
+            bytes: [],
+          });
           continue;
         }
 
         if (m === "SECTION") {
-          out.push(fmtLst("", display));
+          out.push({ orig, prefix: "", display, bytes: [] });
           continue;
         }
 
         if (m === "END") {
-          out.push(fmtLst("", display));
+          out.push({ orig, prefix: "", display, bytes: [] });
           done = true;
           break;
         }
 
         if (m === "DS") {
           const n = countDs(parts.operands, symbols, pc, lastLabel);
-          out.push(fmtLst(hex4(pc) + ":", display));
+          out.push({
+            orig,
+            prefix: hex4(pc) + ":",
+            display,
+            addr: pc,
+            bytes: [],
+          });
           pc += n;
           continue;
         }
@@ -1224,10 +1363,22 @@ export function listing(source: string): string {
         for (let i = 0; i < bytes.length; i += 4) {
           let chunk = bytes.slice(i, i + 4);
           let prefix = hex4(pc + i) + ": " + chunk.map(hex2).join(" ");
-          out.push(fmtLst(prefix, i === 0 ? display : ""));
+          out.push({
+            orig,
+            prefix,
+            display: i === 0 ? display : "",
+            addr: pc + i,
+            bytes: chunk,
+          });
         }
         if (bytes.length === 0) {
-          out.push(fmtLst(hex4(pc) + ":", display));
+          out.push({
+            orig,
+            prefix: hex4(pc) + ":",
+            display,
+            addr: pc,
+            bytes: [],
+          });
         }
         pc += bytes.length;
       }
@@ -1242,7 +1393,13 @@ export function listing(source: string): string {
     }
   }
 
-  return out.join("\n");
+  return out;
+}
+
+export function listing(source: string): string {
+  return lineInfo(source)
+    .map((r) => fmtLst(r.prefix, r.display))
+    .join("\n");
 }
 
 function flag(args: string[], name: string): boolean {

@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.0.22 — 2026-04-19
+
+- `.return` codegen: instead of inlining the pop-sequence + `RET` at
+  each early-exit site, `.return` now emits `JMP __proc_<N>_exit` and
+  `.endp` emits a shared `__proc_<N>_exit:` label followed by the pops
+  and `RET`. When the `.proc` has no register list, `.return` degrades
+  to a bare `RET` (1 byte) and no exit label is emitted. Fall-through
+  to `.endp` still produces pops + `RET` as before.
+- `equ` now resolves forward references. Previously the expression was
+  evaluated at its source position and any symbol defined later failed
+  with "unknown symbol". Unresolved `equ`s are queued during pass 1
+  and iteratively resolved to a fixpoint, so chains like
+  `A equ B + 1 / B equ C * 2 / C equ 3` work regardless of order.
+  Genuine cycles still error at the offending line.
+
 ## 1.0.21 — 2026-04-19
 
 - Add `.proc` / `.endp` / `.return` directives for register-saving

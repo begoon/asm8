@@ -1,6 +1,6 @@
 {
   "name": "asm8080",
-  "version": "1.0.21",
+  "version": "1.0.22",
   "description": "Intel 8080 two-pass assembler",
   "type": "module",
   "main": "./dist/asm8.js",
@@ -20,6 +20,7 @@
   ],
   "scripts": {
     "build": "tsc",
+    "build:docs": "bun build docs/playground.ts --target=browser --format=esm --outfile=docs/playground.js",
     "prepublishOnly": "npm run build",
     "test": "bun test",
     "fmt": "bunx --bun prettier --write ."

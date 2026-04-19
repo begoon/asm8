@@ -4,6 +4,10 @@ Intel 8080 two-pass assembler written in TypeScript.
 
 Built primarily to assemble the Radio-86RK monitor ROM, but works with any Intel 8080 source.
 
+## Playground
+
+Try it in the browser: **[begoon.github.io/asm8](https://begoon.github.io/asm8/)** — live editor with assembly listing, built-in examples, and a **run** button that boots the binary in the [rk86.ru](https://rk86.ru/beta) emulator.
+
 ## Install
 
 ```sh
@@ -72,7 +76,9 @@ Each `org` directive creates a new section. The `section name` directive names i
 
 ## Assembler features
 
-- Two-pass assembly (forward references resolved automatically)
+- Two-pass assembly. Forward references resolve for both labels and `equ`
+  (including chained `equ`-to-`equ` expressions — unresolved entries are
+  iteratively re-evaluated to a fixpoint after the first pass)
 - Case-insensitive mnemonics, registers, and symbols
 - All documented Intel 8080 instructions
 - Directives: `org`, `section`, `db`, `dw`, `ds`, `equ`, `end` — each may also be written with a leading dot (`.org`, `.db`, etc.) for compatibility with other assemblers

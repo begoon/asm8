@@ -31,6 +31,15 @@ Two-pass assembler. Pass 1 collects symbols (labels + equ), pass 2 emits bytes.
 `asm(source: string)` returns `Section[]` where each section has `start`, `end`, `data`, and optional `name`.
 A new section starts at each `org` directive. The `section name` directive names the current section (must be unique, must follow `org`).
 
+Pass 1 records label addresses as it walks. `equ` expressions that reference
+symbols not yet defined are queued, and after the main pass a fixpoint loop
+repeatedly re-evaluates the queue until it's empty (progress made) or nothing
+resolves (unresolved symbol / cycle — surfaced as `unknown symbol` at the
+offending line). This makes forward references work for both label-to-label
+and equ-to-equ chains. The only case that still fails is a `DS N` whose `N`
+depends on a forward reference, since `DS` shifts subsequent label PCs during
+pass 1.
+
 Expressions use a recursive descent parser with C operator precedence:
 `+`, `-`, `*`, `/`, `%`, `|`, `&`, `^`, `~`, `<<`, `>>`, `()`, `LOW()`, `HIGH()`.
 `$` evaluates to the current address (start of the current instruction/directive).
@@ -104,7 +113,15 @@ Syntax: `<name> .proc [reg, reg, ...]` where each register is one of
 `PSW B D H` (the four pushable pairs); separators may be commas or
 whitespace. The preprocessor emits the label, pushes in listed order
 at entry, and pops in reverse order followed by `RET` at `.endp`.
-`.return` expands to the same pop-sequence + RET for early exit.
+
+`.return` is compiled as a jump to a single shared exit block emitted
+at `.endp`: `JMP __proc_<N>_exit`, where `<N>` is a per-proc counter.
+`.endp` emits `__proc_<N>_exit:` (only when at least one `.return` was
+used) followed by the reverse pops and `RET`. Fall-through into `.endp`
+lands on the same teardown. As a special case, when `.proc` has no
+register list, `.return` degrades to a bare `RET` (1 byte) and no exit
+label is emitted.
+
 Procedures cannot nest. The leading dot is optional — `proc` / `endp`
 / `return` work the same as the dotted forms.
 

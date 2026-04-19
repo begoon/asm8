@@ -58,7 +58,7 @@ describe(".proc / .endp / .return", () => {
     expect(s[0].data).toEqual([0xe5, 0x00, 0xe1, 0xc9]);
   });
 
-  test(".return emits pops+ret before .endp", () => {
+  test(".return jumps to shared exit block emitted at .endp", () => {
     const src = [
       "  org 0",
       "foo .proc h",
@@ -71,11 +71,31 @@ describe(".proc / .endp / .return", () => {
       "  end",
     ].join("\n");
     const s = asm(src);
-    // foo: (0), PUSH H (E5, @0), CPI 0 (FE 00, @1), JNZ else (C2 08 00, @3),
-    //   POP H (E1, @6), RET (C9, @7), else: MOV A,B (78, @8),
-    //   POP H (E1, @9), RET (C9, @10)
+    // foo: PUSH H (E5 @0), CPI 0 (FE 00 @1), JNZ else (C2 09 00 @3),
+    //   JMP __proc_0_exit (C3 0A 00 @6), else: MOV A,B (78 @9),
+    //   __proc_0_exit: POP H (E1 @A), RET (C9 @B)
     expect(s[0].data).toEqual([
-      0xe5, 0xfe, 0x00, 0xc2, 0x08, 0x00, 0xe1, 0xc9, 0x78, 0xe1, 0xc9,
+      0xe5, 0xfe, 0x00, 0xc2, 0x09, 0x00, 0xc3, 0x0a, 0x00, 0x78, 0xe1, 0xc9,
+    ]);
+  });
+
+  test(".return in a no-reg proc emits bare RET (no shared exit)", () => {
+    const src = [
+      "  org 0",
+      "foo .proc",
+      "  cpi 0",
+      "  .if Z",
+      "    .return",
+      "  .endif",
+      "  mov a, b",
+      ".endp",
+      "  end",
+    ].join("\n");
+    const s = asm(src);
+    // foo: CPI 0 (FE 00 @0), JNZ else (C2 06 00 @2), RET (C9 @5),
+    //   else: MOV A,B (78 @6), RET (C9 @7)
+    expect(s[0].data).toEqual([
+      0xfe, 0x00, 0xc2, 0x06, 0x00, 0xc9, 0x78, 0xc9,
     ]);
   });
 
@@ -115,10 +135,10 @@ describe(".proc / .endp / .return", () => {
     const s = asm(src);
     // Same layout as the .return-inside-.if test above:
     // PUSH PSW (F5 @0), PUSH H (E5 @1), CPI 0 (FE 00 @2), JNZ else (C2 0A 00 @4),
-    //   POP H (E1 @7), POP PSW (F1 @8), RET (C9 @9),
-    //   else: MOV A,B (78 @A), POP H (E1 @B), POP PSW (F1 @C), RET (C9 @D)
+    //   JMP __proc_0_exit (C3 0B 00 @7), else: MOV A,B (78 @A),
+    //   __proc_0_exit: POP H (E1 @B), POP PSW (F1 @C), RET (C9 @D)
     expect(s[0].data).toEqual([
-      0xf5, 0xe5, 0xfe, 0x00, 0xc2, 0x0a, 0x00, 0xe1, 0xf1, 0xc9, 0x78, 0xe1,
+      0xf5, 0xe5, 0xfe, 0x00, 0xc2, 0x0a, 0x00, 0xc3, 0x0b, 0x00, 0x78, 0xe1,
       0xf1, 0xc9,
     ]);
   });
