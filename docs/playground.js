@@ -1487,18 +1487,21 @@ start:
 // docs/examples/addr.asm
 var addr_default = `; \`$\` evaluates to the address of the current instruction/directive.
 
-length equ end_of_data - start_of_data
-
     org 0100h
 
 start:
-    mvi a, length              ; A = 8
+    mvi a, length              ; A = 8  (computed from $ below)
     call 0f815h                ; print length in hex
+    mvi a, low_of_here         ; A = low byte of \`here\`'s address
+    call 0f815h
     jmp 0f86ch
 
 start_of_data:
     db 1, 2, 3, 4, 5, 6, 7, 8
-end_of_data:
+length equ $ - start_of_data   ; $ here = end of db block
+
+here:
+low_of_here equ $ & 0FFh       ; $ captured at the address of \`here\`
 `;
 
 // docs/examples/locals.asm
@@ -2654,7 +2657,7 @@ var EXAMPLES = [
 ];
 
 // docs/build-info.ts
-var BUILD_TIME = "2026-04-19 19:19:31";
+var BUILD_TIME = "2026-04-19 19:34:18";
 
 // docs/playground.ts
 var STORAGE_KEY = "asm8-playground:source";
