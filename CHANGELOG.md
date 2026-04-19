@@ -1,6 +1,43 @@
 # Changelog
 
-## 2026-04-19
+## 1.0.20 — 2026-04-19
+
+- Add `.if` / `.else` / `.endif` directives. `.if <flag>` skips the
+  body when the flag is false, where `<flag>` is one of
+  `Z NZ C NC PO PE P M`, or the aliases `==` (Z) and `<>` (NZ).
+  Blocks nest. The preprocessor expands them into i8080 jumps and
+  local labels (`@_if_<N>_else` / `@_if_<N>_exit`) before pass 1,
+  preserving original line numbers in error messages. Keep a block
+  within a single non-local scope.
+
+  ```asm
+      cpi 11h
+      .if ==
+        mov a, b
+      .else
+        mov a, c
+      .endif
+  ```
+
+  Nested example — classify A into <10 / 10-19 / >=20:
+
+  ```asm
+  classify:
+      cpi 20
+      .if NC                ; A >= 20
+        mvi b, 2
+      .else
+        cpi 10
+        .if NC              ; 10 <= A < 20
+          mvi b, 1
+        .else               ; A < 10
+          mvi b, 0
+        .endif
+      .endif
+      ret
+  ```
+
+## 1.0.19 — 2026-04-19
 
 - Loosen label-colon requirement: a label preceding an instruction or
   directive on the same line may omit the colon
@@ -11,7 +48,7 @@
 - Fix: `foo: equ 42` now correctly defines `foo = 42` (previously it
   silently set `foo` to the current PC).
 
-## 2026-04-18
+## 1.0.18 — 2026-04-18
 
 - Add local labels: `@name:` and `.name:` scope to the most recent
   non-local label (e.g. `foo: ... @loop:` defines `foo@loop`; `foo: ... .loop:`

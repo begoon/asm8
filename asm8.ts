@@ -157,6 +157,116 @@ const ALL_MNEMONICS = new Set<string>([
   "EQU",
 ]);
 
+// .if <cond> → jump to _else when cond is FALSE (inverted).
+const INVERT_JUMP: Record<string, string> = {
+  Z: "JNZ",
+  NZ: "JZ",
+  C: "JNC",
+  NC: "JC",
+  PO: "JPE",
+  PE: "JPO",
+  P: "JM",
+  M: "JP",
+  "==": "JNZ",
+  "<>": "JZ",
+};
+
+interface PPLine {
+  text: string;
+  orig: number;
+}
+
+interface IfFrame {
+  id: number;
+  sawElse: boolean;
+  line: number;
+  source: string;
+}
+
+function preprocess(source: string): PPLine[] {
+  const lines = source.split("\n");
+  const out: PPLine[] = [];
+  const stack: IfFrame[] = [];
+  let counter = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const orig = i + 1;
+    const bare = stripComment(line).trim();
+
+    const ifMatch = bare.match(/^\.if\s+(\S+)\s*$/i);
+    if (ifMatch) {
+      const cond = ifMatch[1].toUpperCase();
+      const jmp = INVERT_JUMP[cond];
+      if (!jmp) {
+        throw new AsmError(
+          `unknown .if condition: ${ifMatch[1]}`,
+          orig,
+          line,
+          firstNonSpaceCol(line),
+        );
+      }
+      const id = counter++;
+      stack.push({ id, sawElse: false, line: orig, source: line });
+      out.push({ text: `\t${jmp} @_if_${id}_else`, orig });
+      continue;
+    }
+
+    if (/^\.else\s*$/i.test(bare)) {
+      const top = stack[stack.length - 1];
+      if (!top) {
+        throw new AsmError(
+          ".else without .if",
+          orig,
+          line,
+          firstNonSpaceCol(line),
+        );
+      }
+      if (top.sawElse) {
+        throw new AsmError(
+          "duplicate .else",
+          orig,
+          line,
+          firstNonSpaceCol(line),
+        );
+      }
+      top.sawElse = true;
+      out.push({ text: `\tJMP @_if_${top.id}_exit`, orig });
+      out.push({ text: `@_if_${top.id}_else:`, orig });
+      continue;
+    }
+
+    if (/^\.endif\s*$/i.test(bare)) {
+      const top = stack.pop();
+      if (!top) {
+        throw new AsmError(
+          ".endif without .if",
+          orig,
+          line,
+          firstNonSpaceCol(line),
+        );
+      }
+      const suffix = top.sawElse ? "exit" : "else";
+      out.push({ text: `@_if_${top.id}_${suffix}:`, orig });
+      continue;
+    }
+
+    out.push({ text: line, orig });
+  }
+
+  if (stack.length) {
+    const top = stack[stack.length - 1];
+    throw new AsmError(
+      ".if without .endif",
+      top.line,
+      top.source,
+      firstNonSpaceCol(top.source),
+    );
+  }
+
+  return out;
+}
+
 const MAX_STATEMENTS_PER_LINE = 10;
 
 function splitStatements(line: string): string[] {
@@ -670,15 +780,15 @@ function countDb(operands: string[]): number {
 }
 
 export function asm(source: string): Section[] {
-  const lines = source.split("\n");
+  const pp = preprocess(source);
   const symbols = new Map<string, number>();
 
   // Pass 1: collect symbols
   let pc = 0;
   let lastLabel = "";
   let ended = false;
-  for (let idx = 0; idx < lines.length && !ended; idx++) {
-    const line = lines[idx];
+  for (let idx = 0; idx < pp.length && !ended; idx++) {
+    const { text: line, orig } = pp[idx];
     try {
       for (const stmt of splitStatements(line)) {
         const parts = parseLine(stmt);
@@ -732,7 +842,7 @@ export function asm(source: string): Section[] {
       if (e instanceof AsmError) throw e;
       throw new AsmError(
         (e as Error).message,
-        idx + 1,
+        orig,
         line,
         firstNonSpaceCol(line),
       );
@@ -746,8 +856,8 @@ export function asm(source: string): Section[] {
   let lastLabel2 = "";
 
   let endedPass2 = false;
-  for (let idx = 0; idx < lines.length && !endedPass2; idx++) {
-    const line = lines[idx];
+  for (let idx = 0; idx < pp.length && !endedPass2; idx++) {
+    const { text: line, orig } = pp[idx];
     try {
       for (const stmt of splitStatements(line)) {
         const parts = parseLine(stmt);
@@ -802,7 +912,7 @@ export function asm(source: string): Section[] {
       if (e instanceof AsmError) throw e;
       throw new AsmError(
         (e as Error).message,
-        idx + 1,
+        orig,
         line,
         firstNonSpaceCol(line),
       );
@@ -833,13 +943,13 @@ function fmtLst(prefix: string, source: string): string {
   return (padded + source).trimEnd();
 }
 
-function collectSymbols(lines: string[]): Map<string, number> {
+function collectSymbols(pp: PPLine[]): Map<string, number> {
   let symbols = new Map<string, number>();
   let pc = 0;
   let lastLabel = "";
   let ended = false;
-  for (let idx = 0; idx < lines.length && !ended; idx++) {
-    let line = lines[idx];
+  for (let idx = 0; idx < pp.length && !ended; idx++) {
+    let { text: line, orig } = pp[idx];
     try {
       for (const stmt of splitStatements(line)) {
         let parts = parseLine(stmt);
@@ -893,7 +1003,7 @@ function collectSymbols(lines: string[]): Map<string, number> {
       if (e instanceof AsmError) throw e;
       throw new AsmError(
         (e as Error).message,
-        idx + 1,
+        orig,
         line,
         firstNonSpaceCol(line),
       );
@@ -903,7 +1013,7 @@ function collectSymbols(lines: string[]): Map<string, number> {
 }
 
 export function symbolTable(source: string): string {
-  let symbols = collectSymbols(source.split("\n"));
+  let symbols = collectSymbols(preprocess(source));
   let out: string[] = [];
   let sorted = [...symbols.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   for (let [name, val] of sorted) {
@@ -930,8 +1040,8 @@ export function sectionMap(sections: Section[]): string {
 }
 
 export function listing(source: string): string {
-  let lines = source.split("\n");
-  let symbols = collectSymbols(lines);
+  let pp = preprocess(source);
+  let symbols = collectSymbols(pp);
 
   // Pass 2: generate listing
   let out: string[] = [];
@@ -939,8 +1049,8 @@ export function listing(source: string): string {
   let lastLabel = "";
   let done = false;
 
-  for (let idx = 0; idx < lines.length; idx++) {
-    let line = lines[idx];
+  for (let idx = 0; idx < pp.length; idx++) {
+    let { text: line, orig } = pp[idx];
     if (done) {
       out.push(fmtLst("", line));
       continue;
@@ -1024,7 +1134,7 @@ export function listing(source: string): string {
       if (e instanceof AsmError) throw e;
       throw new AsmError(
         (e as Error).message,
-        idx + 1,
+        orig,
         line,
         firstNonSpaceCol(line),
       );

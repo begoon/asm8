@@ -48,6 +48,53 @@ rule. Stored as `<lastLabel>@name` or `<lastLabel>.name`, where
 `.name` label stands alone, the colon is required to distinguish it
 from directives like `.org` / `.db`.
 
+### Conditional assembly: `.if` / `.else` / `.endif`
+
+A flag-driven preprocessor expands these directives into i8080 jumps
+before pass 1. `.if <flag>` emits a jump that skips the body when
+`<flag>` is **false**. Supported flags: `Z NZ C NC PO PE P M`, plus
+aliases `==` (→ `Z`) and `<>` (→ `NZ`). Blocks nest.
+
+Examples:
+
+```asm
+; if A == 11h: mov a, b
+    cpi 11h
+    .if ==
+      mov a, b
+    .endif
+```
+
+```asm
+; if A >= 10 (unsigned): mov a, b else mov a, c
+    cpi 10
+    .if NC
+      mov a, b
+    .else
+      mov a, c
+    .endif
+```
+
+```asm
+; nested: retry until A == 0
+retry:
+    call read
+    cpi 0
+    .if NZ
+      .if C
+        jmp error
+      .else
+        jmp retry
+      .endif
+    .endif
+```
+
+The preprocessor generates local labels `@_if_<N>_else` and
+`@_if_<N>_exit` under the enclosing non-local label; avoid using label
+names starting with `@_if_`. Keep an entire `.if`/`.endif` block inside
+a single non-local scope — introducing a new top-level label between
+the jump and its target will break label resolution.
+
 ## CLI flags
 
 - `--split` — one file per section (`name.bin` or `XXXX-XXXX.bin`)
