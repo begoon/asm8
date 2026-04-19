@@ -183,18 +183,36 @@ interface IfFrame {
   source: string;
 }
 
+interface ProcFrame {
+  regs: string[];
+  line: number;
+  source: string;
+}
+
+const VALID_PROC_REGS = new Set(["PSW", "B", "D", "H"]);
+
+function popsAndRet(regs: string[], orig: number): PPLine[] {
+  const out: PPLine[] = [];
+  for (let k = regs.length - 1; k >= 0; k--) {
+    out.push({ text: `\tPOP ${regs[k]}`, orig });
+  }
+  out.push({ text: `\tRET`, orig });
+  return out;
+}
+
 function preprocess(source: string): PPLine[] {
   const lines = source.split("\n");
   const out: PPLine[] = [];
   const stack: IfFrame[] = [];
   let counter = 0;
+  let proc: ProcFrame | null = null;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const orig = i + 1;
     const bare = stripComment(line).trim();
 
-    const ifMatch = bare.match(/^\.if\s+(\S+)\s*$/i);
+    const ifMatch = bare.match(/^\.?if\s+(\S+)\s*$/i);
     if (ifMatch) {
       const cond = ifMatch[1].toUpperCase();
       const jmp = INVERT_JUMP[cond];
@@ -212,7 +230,7 @@ function preprocess(source: string): PPLine[] {
       continue;
     }
 
-    if (/^\.else\s*$/i.test(bare)) {
+    if (/^\.?else\s*$/i.test(bare)) {
       const top = stack[stack.length - 1];
       if (!top) {
         throw new AsmError(
@@ -236,7 +254,7 @@ function preprocess(source: string): PPLine[] {
       continue;
     }
 
-    if (/^\.endif\s*$/i.test(bare)) {
+    if (/^\.?endif\s*$/i.test(bare)) {
       const top = stack.pop();
       if (!top) {
         throw new AsmError(
@@ -251,6 +269,80 @@ function preprocess(source: string): PPLine[] {
       continue;
     }
 
+    const procMatch = bare.match(/^([A-Za-z_]\w*):?\s+\.?proc\b\s*(.*)$/i);
+    if (procMatch && !ALL_MNEMONICS.has(procMatch[1].toUpperCase())) {
+      if (proc) {
+        throw new AsmError(
+          "nested .proc not allowed",
+          orig,
+          line,
+          firstNonSpaceCol(line),
+        );
+      }
+      const name = procMatch[1];
+      const regsRaw = procMatch[2].trim();
+      const regs: string[] = [];
+      if (regsRaw) {
+        for (const r of regsRaw.split(/[,\s]+/)) {
+          if (!r) continue;
+          const up = r.toUpperCase();
+          if (!VALID_PROC_REGS.has(up)) {
+            throw new AsmError(
+              `invalid .proc register: ${r} (expected PSW, B, D, or H)`,
+              orig,
+              line,
+              firstNonSpaceCol(line),
+            );
+          }
+          regs.push(up);
+        }
+      }
+      proc = { regs, line: orig, source: line };
+      out.push({ text: `${name}:`, orig });
+      for (const r of regs) {
+        out.push({ text: `\tPUSH ${r}`, orig });
+      }
+      continue;
+    }
+
+    // Dotted .proc always triggers the missing-label error; dotless "proc"
+    // only when followed by args (so a label named "proc:" still works).
+    if (/^\.proc(\s|$)/i.test(bare) || /^proc\s+\S/i.test(bare)) {
+      throw new AsmError(
+        ".proc requires a label",
+        orig,
+        line,
+        firstNonSpaceCol(line),
+      );
+    }
+
+    if (/^\.?endp\s*$/i.test(bare)) {
+      if (!proc) {
+        throw new AsmError(
+          ".endp without .proc",
+          orig,
+          line,
+          firstNonSpaceCol(line),
+        );
+      }
+      out.push(...popsAndRet(proc.regs, orig));
+      proc = null;
+      continue;
+    }
+
+    if (/^\.?return\s*$/i.test(bare)) {
+      if (!proc) {
+        throw new AsmError(
+          ".return outside .proc",
+          orig,
+          line,
+          firstNonSpaceCol(line),
+        );
+      }
+      out.push(...popsAndRet(proc.regs, orig));
+      continue;
+    }
+
     out.push({ text: line, orig });
   }
 
@@ -261,6 +353,15 @@ function preprocess(source: string): PPLine[] {
       top.line,
       top.source,
       firstNonSpaceCol(top.source),
+    );
+  }
+
+  if (proc) {
+    throw new AsmError(
+      ".proc without .endp",
+      proc.line,
+      proc.source,
+      firstNonSpaceCol(proc.source),
     );
   }
 

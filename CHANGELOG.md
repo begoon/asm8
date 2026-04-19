@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.0.21 — 2026-04-19
+
+- Add `.proc` / `.endp` / `.return` directives for register-saving
+  procedures. `<name> .proc [PSW, B, D, H]` emits the label and pushes
+  the listed pairs; `.endp` pops them in reverse and emits `RET`.
+  `.return` performs the same pop-and-return sequence for early exit.
+  Procedures cannot nest; a raw `ret` inside the body skips the pops
+  and corrupts the stack — use `.return` instead.
+- All preprocessor directives (`.if` / `.else` / `.endif` / `.proc` /
+  `.endp` / `.return`) now accept the leading dot as optional,
+  matching the existing `org` / `.org` convention — `foo proc h` and
+  `if Z` work just like `foo .proc h` and `.if Z`.
+
+  ```asm
+  strlen .proc b, h
+      mvi b, 0
+  loop:
+      mov a, m
+      cpi 0
+      .if Z
+        .return
+      .endif
+      inr b
+      inx h
+      jmp loop
+  .endp
+  ```
+
 ## 1.0.20 — 2026-04-19
 
 - Add `.if` / `.else` / `.endif` directives. `.if <flag>` skips the

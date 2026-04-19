@@ -53,7 +53,9 @@ from directives like `.org` / `.db`.
 A flag-driven preprocessor expands these directives into i8080 jumps
 before pass 1. `.if <flag>` emits a jump that skips the body when
 `<flag>` is **false**. Supported flags: `Z NZ C NC PO PE P M`, plus
-aliases `==` (→ `Z`) and `<>` (→ `NZ`). Blocks nest.
+aliases `==` (→ `Z`) and `<>` (→ `NZ`). Blocks nest. The leading dot
+is optional — `if` / `else` / `endif` work the same as `.if` / `.else`
+/ `.endif`, matching the existing `org` / `.org` convention.
 
 Examples:
 
@@ -94,6 +96,46 @@ The preprocessor generates local labels `@_if_<N>_else` and
 names starting with `@_if_`. Keep an entire `.if`/`.endif` block inside
 a single non-local scope — introducing a new top-level label between
 the jump and its target will break label resolution.
+
+### Procedures: `.proc` / `.endp` / `.return`
+
+A procedure auto-saves and restores register pairs around its body.
+Syntax: `<name> .proc [reg, reg, ...]` where each register is one of
+`PSW B D H` (the four pushable pairs); separators may be commas or
+whitespace. The preprocessor emits the label, pushes in listed order
+at entry, and pops in reverse order followed by `RET` at `.endp`.
+`.return` expands to the same pop-sequence + RET for early exit.
+Procedures cannot nest. The leading dot is optional — `proc` / `endp`
+/ `return` work the same as the dotted forms.
+
+Examples:
+
+```asm
+; save PSW and HL, do work, auto-restore + RET at .endp
+abc .proc psw, h
+    lxi h, buf
+    mov a, m
+.endp
+```
+
+```asm
+; early exit with .return
+strlen .proc b, h
+    mvi b, 0
+loop:
+    mov a, m
+    cpi 0
+    .if Z
+      .return           ; pops H, B and returns — length in B
+    .endif
+    inr b
+    inx h
+    jmp loop
+.endp
+```
+
+A plain `ret` (or conditional `rz`/`rnz`/…) inside a `.proc` body
+skips the pops and corrupts the stack — use `.return` for early exit.
 
 ## CLI flags
 

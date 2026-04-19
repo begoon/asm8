@@ -129,6 +129,22 @@ describe(".if / .else / .endif", () => {
     ]);
   });
 
+  test("dotless forms: if / else / endif work the same as dotted", () => {
+    const src = [
+      "main:",
+      "  org 0",
+      "  if Z",
+      "    nop",
+      "  else",
+      "    hlt",
+      "  endif",
+      "  end",
+    ].join("\n");
+    const s = asm(src);
+    // JNZ else @0, NOP @3, JMP exit @4, else: HLT @7, exit: @8
+    expect(s[0].data).toEqual([0xc2, 0x07, 0x00, 0x00, 0xc3, 0x08, 0x00, 0x76]);
+  });
+
   test("case-insensitive directive names", () => {
     const src = [
       "main:",
