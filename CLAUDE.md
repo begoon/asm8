@@ -35,10 +35,18 @@ Expressions use a recursive descent parser with C operator precedence:
 `+`, `-`, `*`, `/`, `%`, `|`, `&`, `^`, `~`, `<<`, `>>`, `()`, `LOW()`, `HIGH()`.
 `$` evaluates to the current address (start of the current instruction/directive).
 
-Local labels: `@name:` or `.name:` (colon required). Stored as `<lastLabel>@name`
-or `<lastLabel>.name`, where `<lastLabel>` is the most recent non-local label.
-References to `@name` / `.name` resolve relative to the enclosing scope.
-The required colon distinguishes `.name:` labels from directives like `.org` / `.db`.
+Labels: `name:` or `name mnemonic …` — the colon is required when the
+label is alone on a line, optional when followed by an instruction or
+directive on the same line. A colonless label is recognized only when
+the next token is a known mnemonic/directive; otherwise the line is
+reported as `unknown mnemonic`.
+
+Local labels: `@name` or `.name`, with or without colon under the same
+rule. Stored as `<lastLabel>@name` or `<lastLabel>.name`, where
+`<lastLabel>` is the most recent non-local label. References to
+`@name` / `.name` resolve relative to the enclosing scope. When a
+`.name` label stands alone, the colon is required to distinguish it
+from directives like `.org` / `.db`.
 
 ## CLI flags
 

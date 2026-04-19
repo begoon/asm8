@@ -269,37 +269,53 @@ function stripDirectiveDot(s: string): string {
   return s;
 }
 
+const LABEL_RE = /^(?:[A-Za-z_]\w*|@\w+|\.\w+)$/;
+
+function isMnemonic(tok: string): boolean {
+  return ALL_MNEMONICS.has(stripDirectiveDot(tok).toUpperCase());
+}
+
 function parseLine(line: string): ParsedLine {
   let s = stripComment(line).trim();
   if (!s) return { operands: [] };
 
   let label: string | undefined;
   const ci = s.indexOf(":");
-  if (ci > 0 && /^(?:[A-Za-z_]\w*|@\w+|\.\w+)$/.test(s.slice(0, ci).trim())) {
+  if (ci > 0 && LABEL_RE.test(s.slice(0, ci).trim())) {
     label = s.slice(0, ci).trim();
     s = s.slice(ci + 1).trim();
   }
   if (!s) return { label, operands: [] };
 
-  const si = s.search(/\s/);
-  const first = si < 0 ? s : s.slice(0, si);
-  const rest = si < 0 ? "" : s.slice(si).trim();
+  let si = s.search(/\s/);
+  let first = si < 0 ? s : s.slice(0, si);
+  let rest = si < 0 ? "" : s.slice(si).trim();
 
-  if (!label && rest) {
-    const parts = rest.split(/\s+/);
-    if (stripDirectiveDot(parts[0]).toUpperCase() === "EQU") {
-      return {
-        label: first,
-        mnemonic: "EQU",
-        operands: [parts.slice(1).join(" ")],
-        isEqu: true,
-      };
+  // Colonless label: first token isn't a mnemonic but is a valid label
+  // shape, and the next token is a mnemonic/directive.
+  if (!label && rest && LABEL_RE.test(first) && !isMnemonic(first)) {
+    const nextTok = rest.match(/^\S+/)?.[0] ?? "";
+    if (isMnemonic(nextTok)) {
+      label = first;
+      si = rest.search(/\s/);
+      first = si < 0 ? rest : rest.slice(0, si);
+      rest = si < 0 ? "" : rest.slice(si).trim();
     }
+  }
+
+  const mnemonic = stripDirectiveDot(first);
+  if (label && mnemonic.toUpperCase() === "EQU") {
+    return {
+      label,
+      mnemonic: "EQU",
+      operands: [rest],
+      isEqu: true,
+    };
   }
 
   return {
     label,
-    mnemonic: stripDirectiveDot(first),
+    mnemonic,
     operands: rest ? splitOperands(rest) : [],
   };
 }
