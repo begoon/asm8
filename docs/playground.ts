@@ -63,10 +63,50 @@ function asmName(): string {
   return filenameInput.value.trim() || DEFAULT_FILENAME;
 }
 
-function binName(): string {
+function rkName(): string {
   const n = asmName();
   const base = n.replace(/\.[^.]*$/, "") || n;
-  return base + ".bin";
+  return base + ".rk";
+}
+
+// Ported from rk86-js-v2-svelte/src/lib/core/rk86_check_sum.ts.
+// Two-byte (big-endian) checksum used in Radio-86RK tape files.
+function rk86CheckSum(v: number[] | Uint8Array): number {
+  let sum = 0;
+  let j = 0;
+  while (j < v.length - 1) {
+    const c = v[j];
+    sum = (sum + c + (c << 8)) & 0xffff;
+    j += 1;
+  }
+  const sum_h = sum & 0xff00;
+  const sum_l = sum & 0xff;
+  sum = sum_h | ((sum_l + v[j]) & 0xff);
+  return sum;
+}
+
+// Produce an .rk file covering min(start)..max(end) of the sections.
+// Gaps between sections are zero-filled; origin is encoded in the header so
+// an `org 3000h` program doesn't carry 3000h leading zero bytes.
+// Layout: [start_hi, start_lo, end_hi, end_lo] + payload + [0xE6, cs_hi, cs_lo]
+function buildRkFile(sections: Section[]): Uint8Array {
+  if (sections.length === 0) return new Uint8Array(0);
+  const start = sections.reduce((m, s) => Math.min(m, s.start), Infinity);
+  const end = sections.reduce((m, s) => Math.max(m, s.end), 0);
+  const size = end - start + 1;
+  const payload = new Uint8Array(size);
+  for (const s of sections) payload.set(s.data, s.start - start);
+  const checksum = rk86CheckSum(Array.from(payload));
+  const out = new Uint8Array(4 + size + 3);
+  out[0] = (start >> 8) & 0xff;
+  out[1] = start & 0xff;
+  out[2] = (end >> 8) & 0xff;
+  out[3] = end & 0xff;
+  out.set(payload, 4);
+  out[4 + size] = 0xe6;
+  out[4 + size + 1] = (checksum >> 8) & 0xff;
+  out[4 + size + 2] = checksum & 0xff;
+  return out;
 }
 
 const LINE_HEIGHT = 20;
@@ -79,14 +119,15 @@ for (const ex of EXAMPLES) {
   select.appendChild(opt);
 }
 
-select.addEventListener("change", () => {
+select.addEventListener("change", async () => {
   const ex = EXAMPLES.find((e) => e.name === select.value);
   if (!ex) return;
+  const exSource = await ex.source;
   tabs[active].source = source.value;
   const uniqueName = uniqueFilename(ex.filename);
-  tabs.push({ filename: uniqueName, source: ex.source });
+  tabs.push({ filename: uniqueName, source: exSource });
   active = tabs.length - 1;
-  source.value = ex.source;
+  source.value = exSource;
   filenameInput.value = uniqueName;
   lastGoodName = uniqueName;
   source.scrollTop = 0;
@@ -462,19 +503,11 @@ function findOverlap(sections: Section[]): [Section, Section] | null {
   return null;
 }
 
-function flattenSections(sections: Section[]): Uint8Array {
-  if (sections.length === 0) return new Uint8Array(0);
-  const maxEnd = sections.reduce((m, s) => Math.max(m, s.end), 0);
-  const buf = new Uint8Array(maxEnd + 1);
-  for (const s of sections) buf.set(s.data, s.start);
-  return buf;
-}
-
 downloadAsmBtn.addEventListener("click", () => {
   downloadBlob(source.value, asmName(), "text/plain");
 });
 
-function buildBin(): Uint8Array | null {
+function buildRk(): Uint8Array | null {
   if (!lastSections || lastSections.length === 0) return null;
   const overlap = findOverlap(lastSections);
   if (overlap) {
@@ -484,7 +517,7 @@ function buildBin(): Uint8Array | null {
     );
     return null;
   }
-  return flattenSections(lastSections);
+  return buildRkFile(lastSections);
 }
 
 function toBase64(bytes: Uint8Array): string {
@@ -494,15 +527,15 @@ function toBase64(bytes: Uint8Array): string {
 }
 
 downloadBinBtn.addEventListener("click", () => {
-  const bin = buildBin();
-  if (!bin) return;
-  downloadBlob(bin, binName(), "application/octet-stream");
+  const rk = buildRk();
+  if (!rk) return;
+  downloadBlob(rk, rkName(), "application/octet-stream");
 });
 
 runBinBtn.addEventListener("click", () => {
-  const bin = buildBin();
-  if (!bin) return;
-  const dataUrl = `data:;name=${binName()};base64,${toBase64(bin)}`;
+  const rk = buildRk();
+  if (!rk) return;
+  const dataUrl = `data:;name=${rkName()};base64,${toBase64(rk)}`;
   const runUrl = `https://rk86.ru/beta/index.html?run=${encodeURIComponent(dataUrl)}`;
   window.open(runUrl, "_blank", "noopener");
 });
@@ -511,14 +544,15 @@ uploadBtn.addEventListener("click", () => fileInput.click());
 
 resetBtn.addEventListener("click", async () => {
   const ok = await askConfirm(
-    "Reset the current tab to the 'hello' example? This replaces its content.",
+    "Reset the current tab to the 'aloha' example? This replaces its content.",
   );
   if (!ok) return;
-  const def = EXAMPLES.find((e) => e.name === "hello");
+  const def = EXAMPLES.find((e) => e.name === "aloha");
   if (!def) return;
+  const defSource = await def.source;
   const uniqueName = uniqueFilename(def.filename);
-  tabs[active] = { filename: uniqueName, source: def.source };
-  source.value = def.source;
+  tabs[active] = { filename: uniqueName, source: defSource };
+  source.value = defSource;
   filenameInput.value = uniqueName;
   lastGoodName = uniqueName;
   select.value = def.name;
@@ -560,7 +594,7 @@ themeBtn.addEventListener("click", () => {
 
 applyTheme(loadTheme());
 
-function loadTabsFromStorage(): void {
+async function loadTabsFromStorage(): Promise<void> {
   try {
     const raw = localStorage.getItem(TABS_KEY);
     if (raw) {
@@ -582,16 +616,18 @@ function loadTabsFromStorage(): void {
     src = localStorage.getItem(STORAGE_KEY) ?? "";
     name = localStorage.getItem(FILENAME_KEY) ?? "";
   } catch {}
-  if (!src) src = EXAMPLES[0]?.source ?? "";
+  if (!src) src = (await EXAMPLES[0]?.source) ?? "";
   if (!name) name = EXAMPLES[0]?.filename ?? DEFAULT_FILENAME;
   tabs = [{ filename: name, source: src }];
   active = 0;
   saveTabs();
 }
 
-loadTabsFromStorage();
-source.value = tabs[active].source;
-filenameInput.value = tabs[active].filename;
-lastGoodName = tabs[active].filename;
-renderTabs();
-onChange();
+(async () => {
+  await loadTabsFromStorage();
+  source.value = tabs[active].source;
+  filenameInput.value = tabs[active].filename;
+  lastGoodName = tabs[active].filename;
+  renderTabs();
+  onChange();
+})();

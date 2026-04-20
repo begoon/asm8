@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.23 — 2026-04-20
+
+- Playground: add `volcano` and `lestnica` examples; rename `hello` to
+  `aloha` in the example menu; drop the standalone `proc / endp / return`
+  entry (the `proc-ret.asm` and `proc-jmp.asm` entries cover it). The
+  Reset button now defaults to `aloha`.
+
 ## 1.0.22 — 2026-04-19
 
 - `.return` codegen: instead of inlining the pop-sequence + `RET` at

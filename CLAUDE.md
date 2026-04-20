@@ -27,11 +27,12 @@ docs/                    browser playground (GitHub Pages served from here)
   index.html             playground shell
   style.css              theme vars + layout
   playground.ts          editor glue (bundled to playground.js via `just playground`)
-  examples.ts            manifest of examples (imports each .asm as text)
-  examples/*.asm         example sources (edited as standalone files)
+  examples.ts            manifest of examples (lazy `fetch("examples/*.asm")` at load)
+  examples/*.asm         example sources — edit these directly, no rebuild needed
   build-info.ts          generated at build time; holds BUILD_TIME constant
 MONITOR.md               RK86 monitor ROM jump table (F800–F833) + notes
-sokoban.asm              RK86 sokoban source, imported by the playground
+sokoban.asm              reference copy of the sokoban source at repo root
+                         (the playground fetches docs/examples/sokoban.asm)
 ```
 
 ## Architecture
@@ -169,8 +170,11 @@ Single-page editor deployed via GitHub Pages at
 [begoon.github.io/asm8](https://begoon.github.io/asm8/). Run locally with
 `just playground` — it regenerates `docs/build-info.ts` (via `date`), then
 `bun build docs/playground.ts --target=browser --format=esm` bundles
-everything into `docs/playground.js`. `.asm` sources are imported with
-Bun's `with { type: "text" }` so each example stays editable as a real file.
+everything into `docs/playground.js`. Examples are **not** inlined into the
+bundle: `examples.ts` kicks off parallel `fetch("examples/<name>.asm")`
+calls at module load, and the select / reset / init paths `await ex.source`
+when they need the text. Editing an example = editing the .asm under
+`docs/examples/`, no rebuild required.
 
 The editor is multi-tab. State lives under two keys:
 
@@ -188,12 +192,17 @@ Conventions:
   tab label without gating.
 - Loading an example always creates a new tab (disambiguated with
   `foo-2.asm` if needed). Uploads do the same.
-- **Reset** replaces only the active tab. **Close** prompts for confirm
-  when the tab's source is non-empty; closing the last tab clears it
-  in place instead of leaving zero tabs.
-- `run` builds the binary with the same flatten-from-origin layout the
-  CLI uses without `--split`, then opens rk86.ru's `?run=data:...`
-  bootloader in a new tab. `Ctrl/Cmd+R` triggers it.
+- **Reset** replaces only the active tab with the `aloha` example
+  (looked up by name in `EXAMPLES` — keep the name in sync if renamed).
+  **Close** prompts for confirm when the tab's source is non-empty;
+  closing the last tab clears it in place instead of leaving zero tabs.
+- `run` / `download .bin` produce a proper Radio-86RK tape file
+  (`.rk`): 4-byte big-endian header with `start`..`end` addresses,
+  payload covering `min(start)..max(end)` (gaps zero-filled, leading
+  zero-fill avoided so `org 3000h` programs don't carry 12 KB of
+  leading zeros), then `0xE6` + 2-byte checksum from `rk86CheckSum`.
+  `run` base64-encodes the `.rk`, wraps it in a `data:` URL, and opens
+  `rk86.ru/beta/?run=...` in a new tab. `Ctrl/Cmd+R` triggers it.
 
 The in-page confirm modal replaces `window.confirm()` because Chrome
 suppresses native dialogs when the originating tab isn't foregrounded.

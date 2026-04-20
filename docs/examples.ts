@@ -1,31 +1,36 @@
-import helloSource from "./examples/hello.asm" with { type: "text" };
-import sectionsSource from "./examples/sections.asm" with { type: "text" };
-import expressionsSource from "./examples/expressions.asm" with { type: "text" };
-import addrSource from "./examples/addr.asm" with { type: "text" };
-import localsSource from "./examples/locals.asm" with { type: "text" };
-import ifelseSource from "./examples/ifelse.asm" with { type: "text" };
-import okSource from "./examples/ok.asm" with { type: "text" };
-import procSource from "./examples/proc.asm" with { type: "text" };
-import procRetSource from "./examples/proc-ret.asm" with { type: "text" };
-import procJmpSource from "./examples/proc-jmp.asm" with { type: "text" };
-import sokobanSource from "../sokoban.asm" with { type: "text" };
-
 export interface Example {
   name: string;
   filename: string;
-  source: string;
+  source: Promise<string>;
+}
+
+// Each example's `source` is the Promise returned by fetchExample — all
+// fetches are kicked off in parallel at module load, and consumers `await`
+// the one they need. Files live in ./examples/*.asm and can be edited
+// without rebuilding the playground.
+const fetchExample = (f: string): Promise<string> =>
+  fetch(`examples/${f}`).then((r) => r.text());
+
+function file(name: string, filename: string, src: string = ""): Example {
+  return { name, filename, source: fetchExample(src || filename) };
 }
 
 export const EXAMPLES: Example[] = [
-  { name: "hello", filename: "hello.asm", source: helloSource },
-  { name: "ok", filename: "ok.asm", source: okSource },
-  { name: "sections", filename: "sections.asm", source: sectionsSource },
-  { name: "expressions", filename: "expressions.asm", source: expressionsSource },
-  { name: "$ (current address)", filename: "addr.asm", source: addrSource },
-  { name: "local labels (@ and .)", filename: "locals.asm", source: localsSource },
-  { name: "if / else (nested)", filename: "ifelse.asm", source: ifelseSource },
-  { name: "proc / endp / return", filename: "proc.asm", source: procSource },
-  { name: "proc: .return -> RET (no saves)", filename: "proc-ret.asm", source: procRetSource },
-  { name: "proc: .return -> JMP exit (with saves)", filename: "proc-jmp.asm", source: procJmpSource },
-  { name: "sokoban", filename: "sokoban.asm", source: sokobanSource },
+  file("aloha", "hello.asm"),
+  file("ok", "ok.asm"),
+  file("sections", "sections.asm"),
+  file("expressions", "expressions.asm"),
+  file("current address $", "addr.asm"),
+  file("local labels @ and .", "locals.asm"),
+  file("if / else", "ifelse.asm"),
+  file("proc: .return -> RET (no saves)", "proc-ret.asm"),
+  file("proc: .return -> JMP exit (with saves)", "proc-jmp.asm"),
+  file("dump editor", "dumped.asm"),
+  file("chars", "chars.asm"),
+  file("noise", "noise.asm"),
+  file("banner", "banner.asm"),
+  file("pong", "pong.asm"),
+  file("sokoban", "sokoban.asm"),
+  file("volcano", "volcano.asm"),
+  file("lestnica", "lestnica.asm"),
 ];

@@ -1,5 +1,6 @@
 ; .if <flag> skips the body when flag is false.
-; flags: Z NZ C NC PO PE P M   aliases: ==  <>
+; flags: Z NZ C NC PO PE P M
+; aliases: == (Z), <> (NZ)
 
     org 0100h
 

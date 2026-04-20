@@ -1,7 +1,6 @@
-; tiny RK86 program: prints "OK" via ROM routines.
-; click "run" in the toolbar to launch it in the rk86.ru emulator.
-;   F818h  puts string at HL (zero-terminated)
-;   F86Ch  monitor entry
+; tiny RK86 program: prints "OK" via ROM routines
+; F818h - puts string at HL (zero-terminated)
+; F86Ch - monitor entry
 
     .org 0
     .section ok
