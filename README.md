@@ -6,7 +6,16 @@ Built primarily to assemble the Radio-86RK monitor ROM, but works with any Intel
 
 ## Playground
 
-Try it in the browser: **[begoon.github.io/asm8](https://begoon.github.io/asm8/)** — live editor with assembly listing, built-in examples, and a **run** button that boots the binary in the [rk86.ru](https://rk86.ru/beta) emulator.
+Try it in the browser: **[begoon.github.io/asm8](https://begoon.github.io/asm8/)**
+
+- Live assembly listing — addresses and hex bytes appear in the gutter, wrap at four bytes (click `…` for the full dump).
+- Multi-tab editor. Each tab holds its own filename and source; all tabs and the active index persist in `localStorage`.
+- Built-in examples (`hello`, `ok`, `sections`, `expressions`, `$`, local labels, `.if/.else`, `.proc/.return`, sokoban). Loading an example always opens a new tab.
+- `upload` / `download` read and write `.asm` files; `download .bin` produces the same 0..maxEnd layout as the CLI without `--split`.
+- **run** button (or `Ctrl/Cmd+R`) boots the assembled binary in the [rk86.ru](https://rk86.ru/beta) emulator via a `data:` URL.
+- Dark / light theme toggle.
+
+Build locally with `just playground` — regenerates `docs/build-info.ts` and bundles `docs/playground.ts` with Bun.
 
 ## Install
 

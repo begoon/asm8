@@ -23,6 +23,15 @@ tests/asm8.test.ts       golden-file test: monitor.asm vs mon32.bin
 tests/asm8-instructions.test.ts  all i8080 instruction encodings
 target/monitor.asm       reference input (Radio-86RK monitor ROM)
 target/mon32.bin         reference binary (2048 bytes, F800-FFFF)
+docs/                    browser playground (GitHub Pages served from here)
+  index.html             playground shell
+  style.css              theme vars + layout
+  playground.ts          editor glue (bundled to playground.js via `just playground`)
+  examples.ts            manifest of examples (imports each .asm as text)
+  examples/*.asm         example sources (edited as standalone files)
+  build-info.ts          generated at build time; holds BUILD_TIME constant
+MONITOR.md               RK86 monitor ROM jump table (F800–F833) + notes
+sokoban.asm              RK86 sokoban source, imported by the playground
 ```
 
 ## Architecture
@@ -153,6 +162,41 @@ loop:
 
 A plain `ret` (or conditional `rz`/`rnz`/…) inside a `.proc` body
 skips the pops and corrupts the stack — use `.return` for early exit.
+
+## Playground (`docs/`)
+
+Single-page editor deployed via GitHub Pages at
+[begoon.github.io/asm8](https://begoon.github.io/asm8/). Run locally with
+`just playground` — it regenerates `docs/build-info.ts` (via `date`), then
+`bun build docs/playground.ts --target=browser --format=esm` bundles
+everything into `docs/playground.js`. `.asm` sources are imported with
+Bun's `with { type: "text" }` so each example stays editable as a real file.
+
+The editor is multi-tab. State lives under two keys:
+
+- `asm8-playground:tabs` — JSON array of `{ filename, source }`
+- `asm8-playground:active` — active tab index
+
+Extra keys: `asm8-playground:theme` (`light`/`dark`, defaults to light) and
+the legacy `asm8-playground:source` / `:filename` (read once for migration
+from the pre-tabs single-file storage).
+
+Conventions:
+
+- Each tab has a unique `filename`. Commits (blur/Enter) on the filename
+  input validate uniqueness and revert on clash; live typing updates the
+  tab label without gating.
+- Loading an example always creates a new tab (disambiguated with
+  `foo-2.asm` if needed). Uploads do the same.
+- **Reset** replaces only the active tab. **Close** prompts for confirm
+  when the tab's source is non-empty; closing the last tab clears it
+  in place instead of leaving zero tabs.
+- `run` builds the binary with the same flatten-from-origin layout the
+  CLI uses without `--split`, then opens rk86.ru's `?run=data:...`
+  bootloader in a new tab. `Ctrl/Cmd+R` triggers it.
+
+The in-page confirm modal replaces `window.confirm()` because Chrome
+suppresses native dialogs when the originating tab isn't foregrounded.
 
 ## CLI flags
 

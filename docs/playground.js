@@ -2657,13 +2657,17 @@ var EXAMPLES = [
 ];
 
 // docs/build-info.ts
-var BUILD_TIME = "2026-04-19 19:34:18";
+var BUILD_TIME = "2026-04-20 12:12:07";
 
 // docs/playground.ts
 var STORAGE_KEY = "asm8-playground:source";
 var FILENAME_KEY = "asm8-playground:filename";
+var TABS_KEY = "asm8-playground:tabs";
+var ACTIVE_KEY = "asm8-playground:active";
 var THEME_KEY = "asm8-playground:theme";
 var DEFAULT_FILENAME = "program.asm";
+var tabs = [];
+var active = 0;
 function applyTheme(t) {
   document.body.classList.toggle("theme-light", t === "light");
   themeBtn.textContent = t === "light" ? "dark" : "light";
@@ -2699,6 +2703,7 @@ var resetBtn = document.getElementById("reset");
 var themeBtn = document.getElementById("theme");
 var fileInput = document.getElementById("file-input");
 var filenameInput = document.getElementById("filename");
+var tabsEl = document.getElementById("tabs");
 function asmName() {
   return filenameInput.value.trim() || DEFAULT_FILENAME;
 }
@@ -2719,13 +2724,30 @@ select.addEventListener("change", () => {
   const ex = EXAMPLES.find((e) => e.name === select.value);
   if (!ex)
     return;
+  tabs[active].source = source.value;
+  const uniqueName = uniqueFilename(ex.filename);
+  tabs.push({ filename: uniqueName, source: ex.source });
+  active = tabs.length - 1;
   source.value = ex.source;
-  filenameInput.value = ex.filename;
-  saveFilename();
+  filenameInput.value = uniqueName;
+  lastGoodName = uniqueName;
   source.scrollTop = 0;
+  saveTabs();
+  renderTabs();
   onChange();
   source.focus();
 });
+function uniqueFilename(base) {
+  if (!tabs.some((t, i) => i !== active && t.filename === base))
+    return base;
+  const m = base.match(/^(.*?)(\.[^.]*)?$/);
+  const stem = m ? m[1] : base;
+  const ext = m && m[2] ? m[2] : "";
+  let n = 2;
+  while (tabs.some((t, i) => i !== active && t.filename === `${stem}-${n}${ext}`))
+    n++;
+  return `${stem}-${n}${ext}`;
+}
 function deselectExample() {
   if (select.value)
     select.value = "";
@@ -2901,17 +2923,135 @@ function compile() {
     renderHighlight(errLine);
   }
 }
+function saveTabs() {
+  try {
+    localStorage.setItem(TABS_KEY, JSON.stringify(tabs));
+    localStorage.setItem(ACTIVE_KEY, String(active));
+  } catch {}
+}
 function save() {
-  try {
-    localStorage.setItem(STORAGE_KEY, source.value);
-  } catch {}
+  tabs[active].source = source.value;
+  saveTabs();
 }
-function saveFilename() {
-  try {
-    localStorage.setItem(FILENAME_KEY, filenameInput.value);
-  } catch {}
+function renderTabs() {
+  tabsEl.innerHTML = "";
+  tabs.forEach((t, i) => {
+    const el = document.createElement("div");
+    el.className = "tab" + (i === active ? " active" : "");
+    el.title = t.filename;
+    const name = document.createElement("span");
+    name.textContent = t.filename || "(untitled)";
+    el.appendChild(name);
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "close";
+    close.textContent = "×";
+    close.title = "close tab";
+    close.addEventListener("click", (e) => {
+      e.stopPropagation();
+      closeTab(i);
+    });
+    el.appendChild(close);
+    el.addEventListener("click", () => switchTab(i));
+    tabsEl.appendChild(el);
+  });
+  const add = document.createElement("button");
+  add.type = "button";
+  add.className = "tab-add";
+  add.textContent = "+";
+  add.title = "new tab";
+  add.addEventListener("click", () => newTab());
+  tabsEl.appendChild(add);
 }
-filenameInput.addEventListener("input", saveFilename);
+function nextUntitled() {
+  let n = 1;
+  while (tabs.some((t) => t.filename === `untitled-${n}.asm`))
+    n++;
+  return `untitled-${n}.asm`;
+}
+function switchTab(i) {
+  if (i === active || i < 0 || i >= tabs.length)
+    return;
+  tabs[active].source = source.value;
+  active = i;
+  source.value = tabs[active].source;
+  filenameInput.value = tabs[active].filename;
+  source.scrollTop = 0;
+  saveTabs();
+  renderTabs();
+  deselectExample();
+  compile();
+  syncScroll();
+  source.focus();
+}
+function newTab() {
+  tabs[active].source = source.value;
+  tabs.push({ filename: nextUntitled(), source: "" });
+  active = tabs.length - 1;
+  source.value = "";
+  filenameInput.value = tabs[active].filename;
+  source.scrollTop = 0;
+  saveTabs();
+  renderTabs();
+  deselectExample();
+  compile();
+  syncScroll();
+  source.focus();
+}
+async function closeTab(i) {
+  const current = i === active ? source.value : tabs[i].source;
+  if (current.trim().length > 0) {
+    const ok = await askConfirm(`Close "${tabs[i].filename}"? Its content will be lost.`);
+    if (!ok)
+      return;
+  }
+  if (tabs.length === 1) {
+    tabs[0] = { filename: DEFAULT_FILENAME, source: "" };
+    active = 0;
+    source.value = "";
+    filenameInput.value = tabs[0].filename;
+    lastGoodName = tabs[0].filename;
+  } else {
+    tabs.splice(i, 1);
+    if (active > i)
+      active--;
+    else if (active === i && active >= tabs.length)
+      active = tabs.length - 1;
+    source.value = tabs[active].source;
+    filenameInput.value = tabs[active].filename;
+    lastGoodName = tabs[active].filename;
+  }
+  saveTabs();
+  renderTabs();
+  deselectExample();
+  compile();
+  syncScroll();
+}
+var lastGoodName = "";
+filenameInput.addEventListener("focus", () => {
+  lastGoodName = filenameInput.value;
+});
+filenameInput.addEventListener("input", () => {
+  tabs[active].filename = filenameInput.value;
+  saveTabs();
+  renderTabs();
+});
+filenameInput.addEventListener("change", () => {
+  const val = filenameInput.value.trim();
+  const dup = tabs.findIndex((t, i) => i !== active && t.filename === val);
+  if (!val || dup !== -1) {
+    if (dup !== -1)
+      alert(`A tab named "${val}" already exists.`);
+    filenameInput.value = lastGoodName;
+    tabs[active].filename = lastGoodName;
+  } else {
+    filenameInput.value = val;
+    tabs[active].filename = val;
+    lastGoodName = val;
+  }
+  saveTabs();
+  renderTabs();
+});
 function syncScroll() {
   gutter.style.transform = `translateY(${-source.scrollTop}px)`;
   if (errLine !== null)
@@ -2989,17 +3129,21 @@ runBinBtn.addEventListener("click", () => {
 });
 uploadBtn.addEventListener("click", () => fileInput.click());
 resetBtn.addEventListener("click", async () => {
-  const ok = await askConfirm("Reset editor and load the 'hello' example? This deletes your current source.");
+  const ok = await askConfirm("Reset the current tab to the 'hello' example? This replaces its content.");
   if (!ok)
     return;
   const def = EXAMPLES.find((e) => e.name === "hello");
   if (!def)
     return;
+  const uniqueName = uniqueFilename(def.filename);
+  tabs[active] = { filename: uniqueName, source: def.source };
   source.value = def.source;
-  filenameInput.value = def.filename;
+  filenameInput.value = uniqueName;
+  lastGoodName = uniqueName;
   select.value = def.name;
-  saveFilename();
   source.scrollTop = 0;
+  saveTabs();
+  renderTabs();
   onChange();
   source.focus();
 });
@@ -3008,10 +3152,16 @@ fileInput.addEventListener("change", async () => {
   if (!f)
     return;
   const text = await f.text();
+  const uniqueName = uniqueFilename(f.name);
+  tabs.push({ filename: uniqueName, source: text });
+  active = tabs.length - 1;
   source.value = text;
-  filenameInput.value = f.name;
-  saveFilename();
+  filenameInput.value = uniqueName;
+  lastGoodName = uniqueName;
+  source.scrollTop = 0;
   fileInput.value = "";
+  saveTabs();
+  renderTabs();
   onChange();
   source.focus();
 });
@@ -3024,16 +3174,39 @@ themeBtn.addEventListener("click", () => {
   saveTheme(next);
 });
 applyTheme(loadTheme());
-var initial = "";
-var initialName = "";
-try {
-  initial = localStorage.getItem(STORAGE_KEY) ?? "";
-  initialName = localStorage.getItem(FILENAME_KEY) ?? "";
-} catch {}
-if (!initial)
-  initial = EXAMPLES[0]?.source ?? "";
-if (!initialName)
-  initialName = EXAMPLES[0]?.filename ?? DEFAULT_FILENAME;
-source.value = initial;
-filenameInput.value = initialName;
+function loadTabsFromStorage() {
+  try {
+    const raw = localStorage.getItem(TABS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        tabs = parsed.map((t) => ({
+          filename: String(t.filename ?? DEFAULT_FILENAME),
+          source: String(t.source ?? "")
+        }));
+        const a = Number(localStorage.getItem(ACTIVE_KEY) ?? 0) | 0;
+        active = a < 0 || a >= tabs.length ? 0 : a;
+        return;
+      }
+    }
+  } catch {}
+  let src = "";
+  let name = "";
+  try {
+    src = localStorage.getItem(STORAGE_KEY) ?? "";
+    name = localStorage.getItem(FILENAME_KEY) ?? "";
+  } catch {}
+  if (!src)
+    src = EXAMPLES[0]?.source ?? "";
+  if (!name)
+    name = EXAMPLES[0]?.filename ?? DEFAULT_FILENAME;
+  tabs = [{ filename: name, source: src }];
+  active = 0;
+  saveTabs();
+}
+loadTabsFromStorage();
+source.value = tabs[active].source;
+filenameInput.value = tabs[active].filename;
+lastGoodName = tabs[active].filename;
+renderTabs();
 onChange();
