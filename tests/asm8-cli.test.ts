@@ -73,10 +73,71 @@ describe("CLI: multiple input files", () => {
     expect(() => readFileSync(join(outDir, "alpha.lst"))).not.toThrow();
     expect(() => readFileSync(join(outDir, "alpha.sym"))).not.toThrow();
     expect(() => readFileSync(join(outDir, "alpha.map"))).not.toThrow();
+    expect(() => readFileSync(join(outDir, "alpha.json"))).not.toThrow();
 
     const lst = readFileSync(join(outDir, "alpha.lst"), "utf-8");
     expect(lst).toContain("nop");
     expect(lst).toContain("hlt");
+  });
+
+  test("-l writes structured .json with addr/bytes/chars/op/args/data/comment", () => {
+    const src = [
+      "        org 100h",
+      "start:  mvi a, 42h      ; load",
+      "        jmp done",
+      "done:   hlt",
+      "msg:    db  'Hi', 0",
+      "        end",
+      "",
+    ].join("\n");
+    const a = write("j.asm", src);
+    const outDir = join(TMP, "out-json");
+    const r = run([a, "-l", "-o", outDir]);
+    expect(r.code).toBe(0);
+
+    const j = JSON.parse(readFileSync(join(outDir, "j.json"), "utf-8"));
+    expect(Object.keys(j).sort()).toEqual(["code", "map", "symbols"]);
+
+    const org = j.code.find((e: any) => e.op === "org");
+    expect(org).toMatchObject({ addr: "0100", arg1: "100h" });
+
+    const mvi = j.code.find((e: any) => e.op === "mvi");
+    expect(mvi).toMatchObject({
+      label: "start",
+      addr: "0100",
+      bytes: "3E 42",
+      arg1: "a",
+      arg2: "42h",
+      comment: "; load",
+    });
+    expect(mvi.chars).toHaveLength(2);
+
+    const jmp = j.code.find((e: any) => e.op === "jmp");
+    expect(jmp).toMatchObject({
+      addr: "0102",
+      bytes: "C3 05 01",
+      arg1: "done",
+    });
+
+    const db = j.code.find((e: any) => e.op === "db");
+    expect(db).toMatchObject({
+      label: "msg",
+      addr: "0106",
+      bytes: "48 69 00",
+      chars: "Hi.",
+      data: "'Hi', 0",
+    });
+
+    expect(j.symbols).toMatchObject({
+      START: "0100",
+      DONE: "0105",
+      MSG: "0106",
+    });
+
+    expect(j.map).toEqual({
+      sections: [{ start: "0100", end: "0108", size: 9 }],
+      total: 9,
+    });
   });
 
   test("usage error when no input files given", () => {

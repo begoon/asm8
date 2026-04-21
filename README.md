@@ -37,7 +37,7 @@ Multiple input files are concatenated in the order given and assembled as if the
 Options:
 
 - `--split` — one file per section, named `<base>-<sectionname>.bin` (or `<base>-XXXX-XXXX.bin` for unnamed sections). If there is only one section, it's written as `<base>.bin`.
-- `-l` — generate listing (`.lst`), symbol table (`.sym`), and section map (`.map`) files
+- `-l` — generate listing (`.lst`), symbol table (`.sym`), section map (`.map`), and structured listing (`.json`) files
 - `-o <dir>` — output directory (created if needed)
 - `-v`, `--version` — print version
 - `-h`, `--help` — show help
@@ -71,6 +71,42 @@ F800-FFFF   2048 bytes
 
 Total: 2048 bytes in 1 section
 ```
+
+The `.json` file contains the same information in a machine-readable form, split into `code`, `symbols`, and `map`:
+
+```json
+{
+  "code": [
+    {
+      "line": 4,
+      "label": "start",
+      "op": "mvi",
+      "addr": "0100",
+      "bytes": "3E 42",
+      "chars": ">B",
+      "arg1": "a",
+      "arg2": "42h",
+      "comment": "; load"
+    },
+    {
+      "line": 7,
+      "label": "msg",
+      "op": "db",
+      "addr": "0106",
+      "bytes": "48 69 00",
+      "chars": "Hi.",
+      "data": "'Hi', 0"
+    }
+  ],
+  "symbols": { "MSG": "0106", "START": "0100" },
+  "map": {
+    "sections": [{ "start": "0100", "end": "0108", "size": 9 }],
+    "total": 9
+  }
+}
+```
+
+Each `code` entry has `line` plus any relevant subset of `addr`, `bytes`, `chars`, `label`, `op`, `arg1`/`arg2` (instructions) or `data` (`db`/`dw`/`ds`), and `comment` (`;`-prefixed).
 
 ## API
 

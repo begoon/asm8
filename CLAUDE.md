@@ -210,7 +210,16 @@ suppresses native dialogs when the originating tab isn't foregrounded.
 ## CLI flags
 
 - `--split` — one file per section (`name.bin` or `XXXX-XXXX.bin`)
-- `-l` — generate listing (`.lst`) with addresses/hex bytes/source, symbol table (`.sym`), and section map (`.map`)
+- `-l` — generate listing (`.lst`) with addresses/hex bytes/source, symbol
+  table (`.sym`), section map (`.map`), and structured listing (`.json`). The
+  JSON is `{ code, symbols, map }`:
+  - `code` — array of per-statement entries with fields `line`, `addr`,
+    `bytes`, `chars`, `label`, `op`, `arg1`/`arg2` (instructions) or `data`
+    (DB/DW/DS), and `comment` — all optional except `line`.
+  - `symbols` — object mapping `NAME` (uppercased) to 4-digit hex address,
+    sorted by name.
+  - `map` — `{ sections: [{ start, end, size, name? }], total }` with addresses
+    as 4-digit hex and sizes in bytes.
 - `-o <dir>` — output directory (created if needed)
 - `-v` — print version from package.json
 - `-h` — help

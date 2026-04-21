@@ -1402,6 +1402,218 @@ export function listing(source: string): string {
     .join("\n");
 }
 
+export interface LineJson {
+  line: number;
+  addr?: string;
+  bytes?: string;
+  chars?: string;
+  label?: string;
+  op?: string;
+  arg1?: string;
+  arg2?: string;
+  data?: string;
+  comment?: string;
+}
+
+function charsOf(bytes: number[]): string {
+  return bytes
+    .map((b) => (b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : "."))
+    .join("");
+}
+
+function extractComment(line: string): string | undefined {
+  let inQ = false;
+  let qc = "";
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQ) {
+      if (c === qc) inQ = false;
+    } else if (c === '"' || c === "'") {
+      inQ = true;
+      qc = c;
+    } else if (c === ";") return line.slice(i).trimEnd();
+  }
+  return undefined;
+}
+
+const DATA_DIRECTIVES = new Set(["DB", "DW", "DS"]);
+
+export function lineJson(source: string): LineJson[] {
+  const pp = preprocess(source);
+  const symbols = collectSymbols(pp);
+  const out: LineJson[] = [];
+  let pc = 0;
+  let lastLabel = "";
+  let done = false;
+
+  for (let idx = 0; idx < pp.length && !done; idx++) {
+    const { text: line, orig } = pp[idx];
+    try {
+      const statements = splitStatements(line);
+      for (let si = 0; si < statements.length; si++) {
+        const stmt = statements[si];
+        const parts = parseLine(stmt);
+        const comment =
+          si === statements.length - 1 ? extractComment(line) : undefined;
+
+        if (
+          parts.label &&
+          !parts.label.startsWith("@") &&
+          !parts.label.startsWith(".") &&
+          !parts.isEqu
+        ) {
+          lastLabel = parts.label;
+        }
+
+        const entry: LineJson = { line: orig };
+        if (parts.label) entry.label = parts.label;
+
+        if (parts.isEqu) {
+          const val = evalExpr(parts.operands[0], symbols, pc, lastLabel);
+          entry.op = "equ";
+          entry.arg1 = parts.operands[0];
+          entry.addr = hex4(val);
+          if (comment) entry.comment = comment;
+          out.push(entry);
+          continue;
+        }
+
+        if (!parts.mnemonic) {
+          if (parts.label) entry.addr = hex4(pc);
+          if (comment) entry.comment = comment;
+          if (parts.label || comment) out.push(entry);
+          continue;
+        }
+
+        const m = parts.mnemonic.toUpperCase();
+        entry.op = parts.mnemonic.toLowerCase();
+
+        if (m === "ORG") {
+          pc = evalExpr(parts.operands[0], symbols, pc, lastLabel);
+          entry.addr = hex4(pc);
+          if (parts.operands[0]) entry.arg1 = parts.operands[0];
+          if (comment) entry.comment = comment;
+          out.push(entry);
+          continue;
+        }
+
+        if (m === "SECTION") {
+          if (parts.operands[0]) entry.arg1 = parts.operands[0];
+          if (comment) entry.comment = comment;
+          out.push(entry);
+          continue;
+        }
+
+        if (m === "END") {
+          if (comment) entry.comment = comment;
+          out.push(entry);
+          done = true;
+          break;
+        }
+
+        entry.addr = hex4(pc);
+
+        if (m === "DS") {
+          const n = countDs(parts.operands, symbols, pc, lastLabel);
+          entry.data = parts.operands.join(", ");
+          if (comment) entry.comment = comment;
+          out.push(entry);
+          pc += n;
+          continue;
+        }
+
+        const bytes =
+          m === "DB"
+            ? dbBytes(parts.operands, symbols, pc, lastLabel)
+            : m === "DW"
+              ? dwBytes(parts.operands, symbols, pc, lastLabel)
+              : encode(m, parts.operands, symbols, pc, lastLabel);
+
+        if (bytes.length) {
+          entry.bytes = bytes.map(hex2).join(" ");
+          entry.chars = charsOf(bytes);
+        }
+
+        if (DATA_DIRECTIVES.has(m)) {
+          entry.data = parts.operands.join(", ");
+        } else {
+          if (parts.operands[0]) entry.arg1 = parts.operands[0];
+          if (parts.operands[1]) entry.arg2 = parts.operands[1];
+        }
+        if (comment) entry.comment = comment;
+
+        out.push(entry);
+        pc += bytes.length;
+      }
+    } catch (e) {
+      if (e instanceof AsmError) throw e;
+      throw new AsmError(
+        (e as Error).message,
+        orig,
+        line,
+        firstNonSpaceCol(line),
+      );
+    }
+  }
+
+  return out;
+}
+
+export interface SectionJson {
+  start: string;
+  end: string;
+  size: number;
+  name?: string;
+}
+
+export interface MapJson {
+  sections: SectionJson[];
+  total: number;
+}
+
+export interface AsmJson {
+  code: LineJson[];
+  symbols: Record<string, string>;
+  map: MapJson;
+}
+
+export function symbolsJson(source: string): Record<string, string> {
+  const symbols = collectSymbols(preprocess(source));
+  const sorted = [...symbols.entries()].sort((a, b) =>
+    a[0].localeCompare(b[0]),
+  );
+  const out: Record<string, string> = {};
+  for (const [name, val] of sorted) {
+    out[name] = hex4(val);
+  }
+  return out;
+}
+
+export function sectionMapJson(sections: Section[]): MapJson {
+  const sorted = [...sections].sort((a, b) => a.start - b.start);
+  let total = 0;
+  const out: SectionJson[] = [];
+  for (const s of sorted) {
+    total += s.data.length;
+    const entry: SectionJson = {
+      start: hex4(s.start),
+      end: hex4(s.end),
+      size: s.data.length,
+    };
+    if (s.name) entry.name = s.name;
+    out.push(entry);
+  }
+  return { sections: out, total };
+}
+
+export function asmJson(source: string, sections: Section[]): AsmJson {
+  return {
+    code: lineJson(source),
+    symbols: symbolsJson(source),
+    map: sectionMapJson(sections),
+  };
+}
+
 function flag(args: string[], name: string): boolean {
   const i = args.indexOf(name);
   if (i == -1) return false;
@@ -1459,7 +1671,8 @@ one file; the first filename determines the output <base> name.
 Options:
   --split    write each section as <base>-<name>.bin (or <base>-XXXX-XXXX.bin);
              if there is only one section, write <base>.bin
-  -l         generate listing (.lst), symbol table (.sym), and section map (.map) files
+  -l         generate listing (.lst), symbol table (.sym), section map (.map),
+             and structured listing (.json) files
   -o <dir>   output directory (default: current directory)
   -v         show version
   -h         show this help`);
@@ -1538,10 +1751,15 @@ Options:
     let lstPath = join(outDir, base + ".lst");
     let symPath = join(outDir, base + ".sym");
     let mapPath = join(outDir, base + ".map");
+    let jsonPath = join(outDir, base + ".json");
     try {
       writeFileSync(lstPath, listing(source) + "\n");
       writeFileSync(symPath, symbolTable(source) + "\n");
       writeFileSync(mapPath, sectionMap(sections) + "\n");
+      writeFileSync(
+        jsonPath,
+        JSON.stringify(asmJson(source, sections), null, 2) + "\n",
+      );
     } catch (e) {
       if (e instanceof AsmError) {
         printAsmError(file, e);
@@ -1552,6 +1770,7 @@ Options:
     console.log(lstPath);
     console.log(symPath);
     console.log(mapPath);
+    console.log(jsonPath);
   }
 }
 
