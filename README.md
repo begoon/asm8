@@ -11,8 +11,9 @@ Try it in the browser: **[begoon.github.io/asm8](https://begoon.github.io/asm8/)
 - Live assembly listing — addresses and hex bytes appear in the gutter, wrap at four bytes (click `…` for the full dump).
 - Multi-tab editor. Each tab holds its own filename and source; all tabs and the active index persist in `localStorage`.
 - Built-in examples (`aloha`, `ok`, `sections`, `expressions`, `$`, local labels, `.if/.else`, `.proc/.return`, sokoban, pong, banner, volcano, lestnica). Loading an example always opens a new tab.
-- `upload` / `download` read and write `.asm` files; `download .bin` produces the same 0..maxEnd layout as the CLI without `--split`.
-- **run** button (or `Ctrl/Cmd+R`) boots the assembled binary in the [rk86.ru](https://rk86.ru/beta) emulator via a `data:` URL.
+- `upload` / `download` read and write `.asm` files.
+- **download as** dropdown picks the output envelope — `.rk` (default), `.rkr`, `.pki`, `.gam`, or raw `.bin`. Tape formats prepend a 4-byte big-endian start/end header (plus an extra `E6h` sync byte for `.pki` / `.gam`) and append `E6 + 2-byte checksum`. The payload is always packed tight (`min(start)..max(end)`, gaps zero-filled), so `org 3000h` programs stay compact. The choice is persisted in `localStorage`.
+- **run** button (or `Ctrl/Cmd+R`) boots the assembled binary in the [rk86.ru](https://rk86.ru/beta) emulator via a `data:` URL — always as `.rk`, regardless of the download format (the emulator's `?run=` handler only accepts that envelope).
 - Dark / light theme toggle.
 
 Build locally with `just playground` — regenerates `docs/build-info.ts` and bundles `docs/playground.ts` with Bun.
@@ -28,21 +29,35 @@ npm install asm8080
 Run directly from npm (no install required):
 
 ```sh
-npx asm8080 <source.asm> [more.asm ...] [--split] [-l] [-o <dir>]
-bunx asm8080 <source.asm> [more.asm ...] [--split] [-l] [-o <dir>]
+npx asm8080 <source.asm> [more.asm ...] [--split] [--format <ext>] [-l] [-o <dir>]
+bunx asm8080 <source.asm> [more.asm ...] [--split] [--format <ext>] [-l] [-o <dir>]
 ```
 
 Multiple input files are concatenated in the order given and assembled as if they were one file. The first filename determines the output `<base>`.
 
 Options:
 
-- `--split` — one file per section, named `<base>-<sectionname>.bin` (or `<base>-XXXX-XXXX.bin` for unnamed sections). If there is only one section, it's written as `<base>.bin`.
+- `--split` — one file per section, named `<base>-<sectionname>.bin` (or `<base>-XXXX-XXXX.bin` for unnamed sections). If there is only one section, it's written as `<base>.<format>`.
+- `--format <ext>` — output envelope for the single-file case. `bin` (default) emits the raw payload; `rk` / `rkr` / `pki` / `gam` wrap it as a Radio-86RK tape file:
+
+  | ext          | layout                                                                |
+  | ------------ | --------------------------------------------------------------------- |
+  | `rk`, `rkr`  | `start_hi start_lo end_hi end_lo` ‖ payload ‖ `E6 cs_hi cs_lo`        |
+  | `pki`, `gam` | `E6` ‖ `start_hi start_lo end_hi end_lo` ‖ payload ‖ `E6 cs_hi cs_lo` |
+
+  Addresses are big-endian and `end` is **inclusive**. Checksum is the monitor's `chksum` routine (`F82Ah`) — every byte except the last feeds both halves of a 16-bit sum (`lo += b, hi += b + carry`); the last byte adds to the low half only. For tape formats the payload is packed tight from `min(start)..max(end)` (no leading zero fill). `.bin` keeps its legacy "load at address 0" layout. Combining a non-bin format with `--split` and more than one section is a hard error.
+
 - `-l` — generate listing (`.lst`), symbol table (`.sym`), section map (`.map`), and structured listing (`.json`) files
 - `-o <dir>` — output directory (created if needed)
 - `-v`, `--version` — print version
 - `-h`, `--help` — show help
 
 Default output is a single file `<base>.bin` containing all sections placed at their addresses, with zeros filling any gaps (including in front of the first section if its ORG isn't 0). The file is sized to the end of the last section — not padded to 64 KB. Overlapping sections are an error. With `--split`, each section is written as a separate file without padding.
+
+```sh
+bunx asm8080 prog.asm --format rk          # prog.rk
+bunx asm8080 prog.asm --format gam -o out  # out/prog.gam
+```
 
 A section map is printed to stdout:
 
@@ -136,7 +151,7 @@ Each `org` directive creates a new section. The `section name` directive names i
 - `$` — current address (at the start of the current instruction or directive)
 - Local labels: `@name:` or `.name:` — scoped to the most recent non-local label. `foo: ... @loop:` defines the symbol `foo@loop`; `foo: ... .loop:` defines `foo.loop`. Within `foo`'s scope, `jmp @loop` / `jmp .loop` resolves to that symbol. A colon is required, just as for normal labels (this also disambiguates `.loop:` from directives like `.org` / `.db`).
 
-  ```
+```asm
   delay:
             mvi b, 10
   @loop:    dcr b
@@ -148,14 +163,14 @@ Each `org` directive creates a new section. The `section name` directive names i
   .loop:    dcr b
             jnz .loop
             ret
-  ```
+```
 
 - Multiple statements per line joined with `/` (spaces required on both sides), up to 10 per line:
 
-  ```
+```asm
   push h / push b / push d
   pop  d / pop  b / pop  h
-  ```
+```
 
   To disambiguate from division, the split only fires when a valid instruction name (or directive, optionally dotted) follows the `/`. So `mvi a, 10 / 2` is still treated as division (`10 / 2 = 5`).
 

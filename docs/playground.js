@@ -1455,7 +1455,16 @@ var FILENAME_KEY = "asm8-playground:filename";
 var TABS_KEY = "asm8-playground:tabs";
 var ACTIVE_KEY = "asm8-playground:active";
 var THEME_KEY = "asm8-playground:theme";
+var FORMAT_KEY = "asm8-playground:format";
 var DEFAULT_FILENAME = "program.asm";
+var OUTPUT_FORMATS = [
+  "bin",
+  "rk",
+  "rkr",
+  "pki",
+  "gam"
+];
+var DEFAULT_FORMAT = "rk";
 var tabs = [];
 var active = 0;
 function applyTheme(t) {
@@ -1488,6 +1497,7 @@ var confirmCancel = document.getElementById("confirm-cancel");
 var uploadBtn = document.getElementById("upload-asm");
 var downloadAsmBtn = document.getElementById("download-asm");
 var downloadBinBtn = document.getElementById("download-bin");
+var downloadFormatSel = document.getElementById("download-format");
 var runBinBtn = document.getElementById("run-bin");
 var resetBtn = document.getElementById("reset");
 var themeBtn = document.getElementById("theme");
@@ -1497,10 +1507,10 @@ var tabsEl = document.getElementById("tabs");
 function asmName() {
   return filenameInput.value.trim() || DEFAULT_FILENAME;
 }
-function rkName() {
+function outputName(format2) {
   const n = asmName();
   const base = n.replace(/\.[^.]*$/, "") || n;
-  return base + ".rk";
+  return `${base}.${format2}`;
 }
 function rk86CheckSum(v) {
   let sum = 0;
@@ -1515,7 +1525,7 @@ function rk86CheckSum(v) {
   sum = sum_h | sum_l + v[j] & 255;
   return sum;
 }
-function buildRkFile(sections) {
+function buildOutputFile(sections, format2) {
   if (sections.length === 0)
     return new Uint8Array(0);
   const start = sections.reduce((m, s) => Math.min(m, s.start), Infinity);
@@ -1524,16 +1534,24 @@ function buildRkFile(sections) {
   const payload = new Uint8Array(size);
   for (const s of sections)
     payload.set(s.data, s.start - start);
-  const checksum = rk86CheckSum(Array.from(payload));
-  const out = new Uint8Array(4 + size + 3);
-  out[0] = start >> 8 & 255;
-  out[1] = start & 255;
-  out[2] = end >> 8 & 255;
-  out[3] = end & 255;
-  out.set(payload, 4);
-  out[4 + size] = 230;
-  out[4 + size + 1] = checksum >> 8 & 255;
-  out[4 + size + 2] = checksum & 255;
+  if (format2 === "bin")
+    return payload;
+  const hasSync = format2 === "pki" || format2 === "gam";
+  const headerLen = hasSync ? 5 : 4;
+  const out = new Uint8Array(headerLen + size + 3);
+  let o = 0;
+  if (hasSync)
+    out[o++] = 230;
+  out[o++] = start >> 8 & 255;
+  out[o++] = start & 255;
+  out[o++] = end >> 8 & 255;
+  out[o++] = end & 255;
+  out.set(payload, o);
+  o += size;
+  const checksum = rk86CheckSum(payload);
+  out[o++] = 230;
+  out[o++] = checksum >> 8 & 255;
+  out[o++] = checksum & 255;
   return out;
 }
 var LINE_HEIGHT = 20;
@@ -1912,7 +1930,7 @@ function findOverlap(sections) {
 downloadAsmBtn.addEventListener("click", () => {
   downloadBlob(source.value, asmName(), "text/plain");
 });
-function buildRk() {
+function buildOutput(format2) {
   if (!lastSections || lastSections.length === 0)
     return null;
   const overlap = findOverlap(lastSections);
@@ -1921,7 +1939,7 @@ function buildRk() {
     alert(`sections overlap: ${hex42(a.start)}-${hex42(a.end)} and ${hex42(b.start)}-${hex42(b.end)}`);
     return null;
   }
-  return buildRkFile(lastSections);
+  return buildOutputFile(lastSections, format2);
 }
 function toBase64(bytes) {
   let s = "";
@@ -1929,17 +1947,39 @@ function toBase64(bytes) {
     s += String.fromCharCode(bytes[i]);
   return btoa(s);
 }
+function loadFormat() {
+  try {
+    const v = localStorage.getItem(FORMAT_KEY);
+    if (v && OUTPUT_FORMATS.includes(v)) {
+      return v;
+    }
+  } catch {}
+  return DEFAULT_FORMAT;
+}
+function saveFormat(f) {
+  try {
+    localStorage.setItem(FORMAT_KEY, f);
+  } catch {}
+}
+function selectedFormat() {
+  return downloadFormatSel.value;
+}
+downloadFormatSel.value = loadFormat();
+downloadFormatSel.addEventListener("change", () => {
+  saveFormat(selectedFormat());
+});
 downloadBinBtn.addEventListener("click", () => {
-  const rk = buildRk();
-  if (!rk)
+  const fmt = selectedFormat();
+  const data = buildOutput(fmt);
+  if (!data)
     return;
-  downloadBlob(rk, rkName(), "application/octet-stream");
+  downloadBlob(data, outputName(fmt), "application/octet-stream");
 });
 runBinBtn.addEventListener("click", () => {
-  const rk = buildRk();
+  const rk = buildOutput("rk");
   if (!rk)
     return;
-  const dataUrl = `data:;name=${rkName()};base64,${toBase64(rk)}`;
+  const dataUrl = `data:;name=${outputName("rk")};base64,${toBase64(rk)}`;
   const runUrl = `https://rk86.ru/beta/index.html?run=${encodeURIComponent(dataUrl)}`;
   window.open(runUrl, "_blank", "noopener");
 });

@@ -1640,6 +1640,55 @@ function arg<T>(
   return convert(value);
 }
 
+// Radio-86RK tape-file checksum. Every byte except the last contributes
+// to both halves of the 16-bit sum (low += b, high += b + carry); the
+// last byte adds to the low half only, discarding any carry.
+export function rk86CheckSum(v: ArrayLike<number>): number {
+  let sum = 0;
+  let j = 0;
+  while (j < v.length - 1) {
+    const c = v[j];
+    sum = (sum + c + (c << 8)) & 0xffff;
+    j += 1;
+  }
+  const sumH = sum & 0xff00;
+  const sumL = sum & 0xff;
+  return sumH | ((sumL + v[j]) & 0xff);
+}
+
+export type RkFormat = "bin" | "rk" | "rkr" | "pki" | "gam";
+
+const RK_FORMATS: readonly RkFormat[] = ["bin", "rk", "rkr", "pki", "gam"];
+
+// Wrap a payload in a Radio-86RK tape-file envelope.
+//   bin       -> payload unchanged
+//   rk, rkr   -> [start_hi, start_lo, end_hi, end_lo] + payload + [E6, cs_hi, cs_lo]
+//   pki, gam  -> [E6] ++ rk layout (leading sync byte added)
+// Addresses are big-endian and `end` is inclusive. Checksum is rk86CheckSum.
+export function wrapRk86File(
+  payload: Uint8Array,
+  start: number,
+  end: number,
+  format: RkFormat,
+): Uint8Array {
+  if (format === "bin") return payload;
+  const hasSync = format === "pki" || format === "gam";
+  const out = new Uint8Array((hasSync ? 5 : 4) + payload.length + 3);
+  let o = 0;
+  if (hasSync) out[o++] = 0xe6;
+  out[o++] = (start >> 8) & 0xff;
+  out[o++] = start & 0xff;
+  out[o++] = (end >> 8) & 0xff;
+  out[o++] = end & 0xff;
+  out.set(payload, o);
+  o += payload.length;
+  const checksum = rk86CheckSum(payload);
+  out[o++] = 0xe6;
+  out[o++] = (checksum >> 8) & 0xff;
+  out[o++] = checksum & 0xff;
+  return out;
+}
+
 // CLI driver
 export function cli() {
   const args = process.argv.slice(2);
@@ -1669,13 +1718,23 @@ Multiple input files are concatenated in argument order as if they were
 one file; the first filename determines the output <base> name.
 
 Options:
-  --split    write each section as <base>-<name>.bin (or <base>-XXXX-XXXX.bin);
-             if there is only one section, write <base>.bin
-  -l         generate listing (.lst), symbol table (.sym), section map (.map),
-             and structured listing (.json) files
-  -o <dir>   output directory (default: current directory)
-  -v         show version
-  -h         show this help`);
+  --split           write each section as <base>-<name>.bin (or
+                    <base>-XXXX-XXXX.bin); if there is only one section,
+                    write <base>.<format>
+  --format <ext>    output format for the single-file case: bin (default),
+                    rk, rkr, pki, gam. Non-bin formats wrap the payload in
+                    the Radio-86RK tape-file envelope:
+                      rk, rkr   = [start_hi start_lo end_hi end_lo]
+                                  + payload + [E6 cs_hi cs_lo]
+                      pki, gam  = E6 + rk layout
+                    Addresses are big-endian (end inclusive); cs uses the
+                    RK86 tape checksum. Using a non-bin format together
+                    with --split and multiple sections is an error.
+  -l                generate listing (.lst), symbol table (.sym), section
+                    map (.map), and structured listing (.json) files
+  -o <dir>          output directory (default: current directory)
+  -v                show version
+  -h                show this help`);
     return;
   }
 
@@ -1684,11 +1743,19 @@ Options:
 
   let split = flag(args, "--split");
   let lst = flag(args, "-l");
+  const rawFormat = arg(args, "--format") as string | undefined;
+  const format = (rawFormat ?? "bin").toLowerCase() as RkFormat;
+  if (!RK_FORMATS.includes(format)) {
+    console.error(
+      `unknown --format: ${rawFormat}; expected one of ${RK_FORMATS.join(", ")}`,
+    );
+    process.exit(1);
+  }
 
   const files = args;
   if (files.length === 0) {
     console.error(
-      "Usage: asm8080 <source.asm> [more.asm ...] [--split] [-l] [-o <dir>]",
+      "Usage: asm8080 <source.asm> [more.asm ...] [--split] [--format <ext>] [-l] [-o <dir>]",
     );
     process.exit(1);
   }
@@ -1713,18 +1780,31 @@ Options:
 
   let base = basename(file).replace(/\.[^.]+$/, "");
 
-  if (split) {
-    if (sections.length === 1) {
-      let path = join(outDir, `${base}.bin`);
-      writeFileSync(path, new Uint8Array(sections[0].data));
+  const willEmitMultiple = split && sections.length > 1;
+  if (format !== "bin" && willEmitMultiple) {
+    console.error(
+      `--format=${format} produces a single file; remove --split or reduce to one section`,
+    );
+    process.exit(1);
+  }
+
+  if (split && sections.length === 1) {
+    const s = sections[0];
+    const wrapped = wrapRk86File(
+      new Uint8Array(s.data),
+      s.start,
+      s.end,
+      format,
+    );
+    const path = join(outDir, `${base}.${format}`);
+    writeFileSync(path, wrapped);
+    console.log(path);
+  } else if (split) {
+    for (const s of sections) {
+      let suffix = s.name ?? `${hex4(s.start)}-${hex4(s.end)}`;
+      let path = join(outDir, `${base}-${suffix}.bin`);
+      writeFileSync(path, new Uint8Array(s.data));
       console.log(path);
-    } else {
-      for (const s of sections) {
-        let suffix = s.name ?? `${hex4(s.start)}-${hex4(s.end)}`;
-        let path = join(outDir, `${base}-${suffix}.bin`);
-        writeFileSync(path, new Uint8Array(s.data));
-        console.log(path);
-      }
     }
   } else if (sections.length > 0) {
     const sorted = [...sections].sort((a, b) => a.start - b.start);
@@ -1738,11 +1818,17 @@ Options:
         process.exit(1);
       }
     }
+    const firstStart = sorted[0].start;
     const maxEnd = sorted[sorted.length - 1].end;
-    const buf = new Uint8Array(maxEnd + 1);
-    for (const s of sections) buf.set(s.data, s.start);
-    let path = join(outDir, `${base}.bin`);
-    writeFileSync(path, buf);
+    // For .bin, preserve legacy "load at address 0" layout (leading
+    // zero-fill). For tape formats, pack tight from firstStart..maxEnd
+    // so an `org 3000h` program doesn't carry 12 KB of leading zeros.
+    const bufOrigin = format === "bin" ? 0 : firstStart;
+    const buf = new Uint8Array(maxEnd - bufOrigin + 1);
+    for (const s of sections) buf.set(s.data, s.start - bufOrigin);
+    const wrapped = wrapRk86File(buf, firstStart, maxEnd, format);
+    const path = join(outDir, `${base}.${format}`);
+    writeFileSync(path, wrapped);
     console.log(path);
   }
 

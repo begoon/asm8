@@ -156,6 +156,127 @@ describe("CLI: multiple input files", () => {
   });
 });
 
+describe("CLI: --format tape wrappers", () => {
+  // Golden payload `lxi h, 0` = 21 00 00. Per the RK86 checksum algo
+  // (first byte feeds both halves, trailing zeros are no-ops) this is 2121h.
+  test(".rk wraps addr header + E6 + big-endian checksum", () => {
+    const a = write("tiny.asm", "org 3000h\nlxi h, 0\nend\n");
+    const outDir = join(TMP, "out-rk");
+    const r = run([a, "--format", "rk", "-o", outDir]);
+    expect(r.code).toBe(0);
+    const b = readFileSync(join(outDir, "tiny.rk"));
+    expect(Array.from(b)).toEqual([
+      0x30,
+      0x00,
+      0x30,
+      0x02, // start..end (inclusive)
+      0x21,
+      0x00,
+      0x00, // payload
+      0xe6,
+      0x21,
+      0x21, // sync + cs_hi + cs_lo
+    ]);
+  });
+
+  test(".rkr is identical to .rk layout, just the extension differs", () => {
+    const a = write("tiny2.asm", "org 3000h\nlxi h, 0\nend\n");
+    const outDir = join(TMP, "out-rkr");
+    const r = run([a, "--format", "rkr", "-o", outDir]);
+    expect(r.code).toBe(0);
+    const b = readFileSync(join(outDir, "tiny2.rkr"));
+    expect(Array.from(b)).toEqual([
+      0x30, 0x00, 0x30, 0x02, 0x21, 0x00, 0x00, 0xe6, 0x21, 0x21,
+    ]);
+  });
+
+  test(".pki prepends a leading E6 sync byte to the rk layout", () => {
+    const a = write("tiny3.asm", "org 3000h\nlxi h, 0\nend\n");
+    const outDir = join(TMP, "out-pki");
+    const r = run([a, "--format", "pki", "-o", outDir]);
+    expect(r.code).toBe(0);
+    const b = readFileSync(join(outDir, "tiny3.pki"));
+    expect(Array.from(b)).toEqual([
+      0xe6, // leading sync
+      0x30,
+      0x00,
+      0x30,
+      0x02,
+      0x21,
+      0x00,
+      0x00,
+      0xe6,
+      0x21,
+      0x21,
+    ]);
+  });
+
+  test(".gam is identical to .pki layout", () => {
+    const a = write("tiny4.asm", "org 3000h\nlxi h, 0\nend\n");
+    const outDir = join(TMP, "out-gam");
+    const r = run([a, "--format", "gam", "-o", outDir]);
+    expect(r.code).toBe(0);
+    const b = readFileSync(join(outDir, "tiny4.gam"));
+    expect(Array.from(b)).toEqual([
+      0xe6, 0x30, 0x00, 0x30, 0x02, 0x21, 0x00, 0x00, 0xe6, 0x21, 0x21,
+    ]);
+  });
+
+  test("non-bin formats pack tight (no leading zero fill for org 3000h)", () => {
+    const a = write("tight.asm", "org 3000h\ndb 1,2,3\nend\n");
+    const outDir = join(TMP, "out-tight");
+    const r = run([a, "--format", "rk", "-o", outDir]);
+    expect(r.code).toBe(0);
+    const b = readFileSync(join(outDir, "tight.rk"));
+    expect(b.length).toBe(4 + 3 + 3); // header + payload + trailer
+    expect(b[0]).toBe(0x30); // start high byte of 3000h
+    expect(b[1]).toBe(0x00);
+  });
+
+  test(".bin (default) still zero-fills from addr 0 (legacy behavior)", () => {
+    const a = write("legacy.asm", "org 100h\nhlt\nend\n");
+    const outDir = join(TMP, "out-legacy");
+    const r = run([a, "-o", outDir]);
+    expect(r.code).toBe(0);
+    const b = readFileSync(join(outDir, "legacy.bin"));
+    expect(b.length).toBe(0x101);
+    expect(b[0x100]).toBe(0x76);
+  });
+
+  test("--format rejects multi-file output when --split + multiple sections", () => {
+    const a = write("multi.asm", "org 100h\ndb 1\norg 200h\ndb 2\nend\n");
+    const outDir = join(TMP, "out-multi");
+    const r = run([a, "--split", "--format", "rk", "-o", outDir]);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("--format=rk");
+    expect(r.stderr).toContain("single file");
+  });
+
+  test("--format rk + --split with a single section writes one .rk", () => {
+    const a = write("one.asm", "org 3000h\nlxi h, 0\nend\n");
+    const outDir = join(TMP, "out-split-one");
+    const r = run([a, "--split", "--format", "rk", "-o", outDir]);
+    expect(r.code).toBe(0);
+    const b = readFileSync(join(outDir, "one.rk"));
+    expect(Array.from(b).slice(0, 4)).toEqual([0x30, 0x00, 0x30, 0x02]);
+  });
+
+  test("unknown --format value errors out", () => {
+    const a = write("unk.asm", "org 0\nhlt\nend\n");
+    const r = run([a, "--format", "hex", "-o", join(TMP, "out-unk")]);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("unknown --format: hex");
+  });
+
+  test("--format is case-insensitive", () => {
+    const a = write("case.asm", "org 3000h\nlxi h, 0\nend\n");
+    const outDir = join(TMP, "out-case");
+    const r = run([a, "--format", "RK", "-o", outDir]);
+    expect(r.code).toBe(0);
+    expect(() => readFileSync(join(outDir, "case.rk"))).not.toThrow();
+  });
+});
+
 describe("CLI: error reporting and overlap", () => {
   test("syntax error prints clickable file:line:col", () => {
     const a = write("bad.asm", "org 0\nmvi a, UNDEFINED\nhlt\nend\n");

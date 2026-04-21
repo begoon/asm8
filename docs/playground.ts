@@ -7,7 +7,18 @@ const FILENAME_KEY = "asm8-playground:filename";
 const TABS_KEY = "asm8-playground:tabs";
 const ACTIVE_KEY = "asm8-playground:active";
 const THEME_KEY = "asm8-playground:theme";
+const FORMAT_KEY = "asm8-playground:format";
 const DEFAULT_FILENAME = "program.asm";
+
+type OutputFormat = "bin" | "rk" | "rkr" | "pki" | "gam";
+const OUTPUT_FORMATS: readonly OutputFormat[] = [
+  "bin",
+  "rk",
+  "rkr",
+  "pki",
+  "gam",
+];
+const DEFAULT_FORMAT: OutputFormat = "rk";
 
 interface Tab {
   filename: string;
@@ -46,12 +57,23 @@ const select = document.getElementById("example") as HTMLSelectElement;
 const modal = document.getElementById("modal") as HTMLDivElement;
 const modalContent = document.getElementById("modal-content") as HTMLPreElement;
 const confirmModal = document.getElementById("confirm-modal") as HTMLDivElement;
-const confirmMessage = document.getElementById("confirm-message") as HTMLParagraphElement;
+const confirmMessage = document.getElementById(
+  "confirm-message",
+) as HTMLParagraphElement;
 const confirmOk = document.getElementById("confirm-ok") as HTMLButtonElement;
-const confirmCancel = document.getElementById("confirm-cancel") as HTMLButtonElement;
+const confirmCancel = document.getElementById(
+  "confirm-cancel",
+) as HTMLButtonElement;
 const uploadBtn = document.getElementById("upload-asm") as HTMLButtonElement;
-const downloadAsmBtn = document.getElementById("download-asm") as HTMLButtonElement;
-const downloadBinBtn = document.getElementById("download-bin") as HTMLButtonElement;
+const downloadAsmBtn = document.getElementById(
+  "download-asm",
+) as HTMLButtonElement;
+const downloadBinBtn = document.getElementById(
+  "download-bin",
+) as HTMLButtonElement;
+const downloadFormatSel = document.getElementById(
+  "download-format",
+) as HTMLSelectElement;
 const runBinBtn = document.getElementById("run-bin") as HTMLButtonElement;
 const resetBtn = document.getElementById("reset") as HTMLButtonElement;
 const themeBtn = document.getElementById("theme") as HTMLButtonElement;
@@ -63,10 +85,10 @@ function asmName(): string {
   return filenameInput.value.trim() || DEFAULT_FILENAME;
 }
 
-function rkName(): string {
+function outputName(format: OutputFormat): string {
   const n = asmName();
   const base = n.replace(/\.[^.]*$/, "") || n;
-  return base + ".rk";
+  return `${base}.${format}`;
 }
 
 // Ported from rk86-js-v2-svelte/src/lib/core/rk86_check_sum.ts.
@@ -85,27 +107,38 @@ function rk86CheckSum(v: number[] | Uint8Array): number {
   return sum;
 }
 
-// Produce an .rk file covering min(start)..max(end) of the sections.
+// Produce the output file covering min(start)..max(end) of the sections.
 // Gaps between sections are zero-filled; origin is encoded in the header so
 // an `org 3000h` program doesn't carry 3000h leading zero bytes.
-// Layout: [start_hi, start_lo, end_hi, end_lo] + payload + [0xE6, cs_hi, cs_lo]
-function buildRkFile(sections: Section[]): Uint8Array {
+//   bin        -> raw payload (tight, no leading zero fill)
+//   rk, rkr    -> [start_hi, start_lo, end_hi, end_lo] + payload + [E6, cs_hi, cs_lo]
+//   pki, gam   -> leading E6 sync byte + the rk layout
+function buildOutputFile(
+  sections: Section[],
+  format: OutputFormat,
+): Uint8Array {
   if (sections.length === 0) return new Uint8Array(0);
   const start = sections.reduce((m, s) => Math.min(m, s.start), Infinity);
   const end = sections.reduce((m, s) => Math.max(m, s.end), 0);
   const size = end - start + 1;
   const payload = new Uint8Array(size);
   for (const s of sections) payload.set(s.data, s.start - start);
-  const checksum = rk86CheckSum(Array.from(payload));
-  const out = new Uint8Array(4 + size + 3);
-  out[0] = (start >> 8) & 0xff;
-  out[1] = start & 0xff;
-  out[2] = (end >> 8) & 0xff;
-  out[3] = end & 0xff;
-  out.set(payload, 4);
-  out[4 + size] = 0xe6;
-  out[4 + size + 1] = (checksum >> 8) & 0xff;
-  out[4 + size + 2] = checksum & 0xff;
+  if (format === "bin") return payload;
+  const hasSync = format === "pki" || format === "gam";
+  const headerLen = hasSync ? 5 : 4;
+  const out = new Uint8Array(headerLen + size + 3);
+  let o = 0;
+  if (hasSync) out[o++] = 0xe6;
+  out[o++] = (start >> 8) & 0xff;
+  out[o++] = start & 0xff;
+  out[o++] = (end >> 8) & 0xff;
+  out[o++] = end & 0xff;
+  out.set(payload, o);
+  o += size;
+  const checksum = rk86CheckSum(payload);
+  out[o++] = 0xe6;
+  out[o++] = (checksum >> 8) & 0xff;
+  out[o++] = checksum & 0xff;
   return out;
 }
 
@@ -143,7 +176,10 @@ function uniqueFilename(base: string): string {
   const stem = m ? m[1] : base;
   const ext = m && m[2] ? m[2] : "";
   let n = 2;
-  while (tabs.some((t, i) => i !== active && t.filename === `${stem}-${n}${ext}`)) n++;
+  while (
+    tabs.some((t, i) => i !== active && t.filename === `${stem}-${n}${ext}`)
+  )
+    n++;
   return `${stem}-${n}${ext}`;
 }
 
@@ -507,7 +543,7 @@ downloadAsmBtn.addEventListener("click", () => {
   downloadBlob(source.value, asmName(), "text/plain");
 });
 
-function buildRk(): Uint8Array | null {
+function buildOutput(format: OutputFormat): Uint8Array | null {
   if (!lastSections || lastSections.length === 0) return null;
   const overlap = findOverlap(lastSections);
   if (overlap) {
@@ -517,7 +553,7 @@ function buildRk(): Uint8Array | null {
     );
     return null;
   }
-  return buildRkFile(lastSections);
+  return buildOutputFile(lastSections, format);
 }
 
 function toBase64(bytes: Uint8Array): string {
@@ -526,16 +562,45 @@ function toBase64(bytes: Uint8Array): string {
   return btoa(s);
 }
 
-downloadBinBtn.addEventListener("click", () => {
-  const rk = buildRk();
-  if (!rk) return;
-  downloadBlob(rk, rkName(), "application/octet-stream");
+function loadFormat(): OutputFormat {
+  try {
+    const v = localStorage.getItem(FORMAT_KEY);
+    if (v && (OUTPUT_FORMATS as readonly string[]).includes(v)) {
+      return v as OutputFormat;
+    }
+  } catch {}
+  return DEFAULT_FORMAT;
+}
+
+function saveFormat(f: OutputFormat) {
+  try {
+    localStorage.setItem(FORMAT_KEY, f);
+  } catch {}
+}
+
+function selectedFormat(): OutputFormat {
+  return downloadFormatSel.value as OutputFormat;
+}
+
+downloadFormatSel.value = loadFormat();
+downloadFormatSel.addEventListener("change", () => {
+  saveFormat(selectedFormat());
 });
 
+downloadBinBtn.addEventListener("click", () => {
+  const fmt = selectedFormat();
+  const data = buildOutput(fmt);
+  if (!data) return;
+  downloadBlob(data, outputName(fmt), "application/octet-stream");
+});
+
+// The rk86.ru emulator's ?run= handler expects the .rk tape envelope,
+// so force that format for Run regardless of what the user picked for
+// download.
 runBinBtn.addEventListener("click", () => {
-  const rk = buildRk();
+  const rk = buildOutput("rk");
   if (!rk) return;
-  const dataUrl = `data:;name=${rkName()};base64,${toBase64(rk)}`;
+  const dataUrl = `data:;name=${outputName("rk")};base64,${toBase64(rk)}`;
   const runUrl = `https://rk86.ru/beta/index.html?run=${encodeURIComponent(dataUrl)}`;
   window.open(runUrl, "_blank", "noopener");
 });

@@ -196,13 +196,18 @@ Conventions:
   (looked up by name in `EXAMPLES` — keep the name in sync if renamed).
   **Close** prompts for confirm when the tab's source is non-empty;
   closing the last tab clears it in place instead of leaving zero tabs.
-- `run` / `download .bin` produce a proper Radio-86RK tape file
-  (`.rk`): 4-byte big-endian header with `start`..`end` addresses,
-  payload covering `min(start)..max(end)` (gaps zero-filled, leading
-  zero-fill avoided so `org 3000h` programs don't carry 12 KB of
-  leading zeros), then `0xE6` + 2-byte checksum from `rk86CheckSum`.
-  `run` base64-encodes the `.rk`, wraps it in a `data:` URL, and opens
-  `rk86.ru/beta/?run=...` in a new tab. `Ctrl/Cmd+R` triggers it.
+- **download**: the toolbar `<select id="download-format">` picks the
+  envelope — `.rk` (default) / `.rkr` / `.pki` / `.gam` / `.bin`. The
+  choice is persisted under `asm8-playground:format`. Payloads always
+  cover `min(start)..max(end)` with gaps zero-filled (no leading
+  zero-fill, so `org 3000h` programs stay compact). Tape formats add
+  a 4-byte big-endian start/end header and an `E6 + 2-byte checksum`
+  trailer (rk86CheckSum); `.pki` / `.gam` also prepend an `E6` sync
+  byte. `.bin` is the raw payload.
+- **run** is wired to `.rk` regardless of the dropdown — the
+  rk86.ru/beta/?run= handler only accepts that envelope. It
+  base64-encodes the `.rk`, wraps it in a `data:` URL, and opens a
+  new tab. `Ctrl/Cmd+R` triggers it.
 
 The in-page confirm modal replaces `window.confirm()` because Chrome
 suppresses native dialogs when the originating tab isn't foregrounded.
@@ -210,6 +215,29 @@ suppresses native dialogs when the originating tab isn't foregrounded.
 ## CLI flags
 
 - `--split` — one file per section (`name.bin` or `XXXX-XXXX.bin`)
+- `--format <ext>` — output envelope for the single-file case. `bin`
+  (default) emits the raw payload; `rk` / `rkr` / `pki` / `gam` wrap
+  it as a Radio-86RK tape file. Layout:
+
+  | ext           | bytes                                                                 |
+  | ------------- | --------------------------------------------------------------------- |
+  | `rk` / `rkr`  | `start_hi start_lo end_hi end_lo` ‖ payload ‖ `E6 cs_hi cs_lo`        |
+  | `pki` / `gam` | `E6` ‖ `start_hi start_lo end_hi end_lo` ‖ payload ‖ `E6 cs_hi cs_lo` |
+
+  Addresses are big-endian; `end` is **inclusive**. Checksum is
+  `rk86CheckSum` (exported from `asm8.ts`): every byte except the
+  last feeds both halves of a 16-bit sum (`lo += b, hi += b + carry`);
+  the last byte adds only to the low half. For tape formats the
+  payload is packed tight from `min(start)..max(end)` (no leading
+  zero fill). `.bin` keeps its legacy "load at address 0" layout.
+  Using a non-bin format together with `--split` when there's more
+  than one section is a hard error.
+
+  ```sh
+  bun run asm8.ts prog.asm --format rk          # prog.rk
+  bun run asm8.ts prog.asm --format gam -o out  # out/prog.gam
+  ```
+
 - `-l` — generate listing (`.lst`) with addresses/hex bytes/source, symbol
   table (`.sym`), section map (`.map`), and structured listing (`.json`). The
   JSON is `{ code, symbols, map }`:

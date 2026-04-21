@@ -1,5 +1,44 @@
 # Changelog
 
+## 1.0.24 — 2026-04-21
+
+- Add `--format <ext>` CLI option for the single-file output case.
+  `bin` (default) keeps the legacy "load at address 0" layout;
+  `rk` / `rkr` / `pki` / `gam` wrap the payload in the Radio-86RK
+  tape-file envelope — 4-byte big-endian header with `start..end`
+  (end inclusive), payload packed tight to `min(start)..max(end)`,
+  then `E6` + 2-byte checksum. `pki` / `gam` additionally prepend
+  an `E6` sync byte. Combining a non-bin format with `--split` and
+  multiple sections is a hard error.
+
+  ```sh
+  bunx asm8080 prog.asm --format rk          # prog.rk
+  bunx asm8080 prog.asm --format gam -o out  # out/prog.gam
+  ```
+
+- Export `rk86CheckSum(v)` and
+  `wrapRk86File(payload, start, end, format)` from `asm8.ts`. The
+  checksum matches the RK86 monitor's `chksum` (`F82Ah`): every
+  byte except the last feeds both halves of a 16-bit sum
+  (`lo += b, hi += b + carry`); the last byte only adds to the low
+  half. Verified byte-for-byte against real `.GAM` tape files.
+
+  ```ts
+  import { rk86CheckSum, wrapRk86File } from "asm8080";
+
+  const payload = new Uint8Array([0x21, 0x00, 0x00]); // lxi h, 0
+  rk86CheckSum(payload); // 0x2121
+  wrapRk86File(payload, 0x3000, 0x3002, "rk");
+  //   [30 00 30 02  21 00 00  E6 21 21]
+  ```
+
+- Playground: new **download as** dropdown picks the output envelope
+  (`.rk`, `.rkr`, `.pki`, `.gam`, or raw `.bin`); the choice persists
+  under `asm8-playground:format`. The **run** button stays pinned to
+  `.rk` because the `rk86.ru/beta/?run=` handler only accepts that
+  envelope. Playground `.bin` no longer zero-fills from address 0 —
+  it matches the tape payload (packed `min(start)..max(end)`).
+
 ## 1.0.23 — 2026-04-20
 
 - Playground: add `volcano` and `lestnica` examples; rename `hello` to
