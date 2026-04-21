@@ -196,9 +196,12 @@ Conventions:
   (looked up by name in `EXAMPLES` — keep the name in sync if renamed).
   **Close** prompts for confirm when the tab's source is non-empty;
   closing the last tab clears it in place instead of leaving zero tabs.
-- **download**: the toolbar `<select id="download-format">` picks the
-  envelope — `.rk` (default) / `.rkr` / `.pki` / `.gam` / `.bin`. The
-  choice is persisted under `asm8-playground:format`. Payloads always
+- **download**: one `#download-btn` button + `<select id="download-format">`
+  picks what gets written — `asm` (default, writes the current
+  source), or one of `bin` / `rk` / `rkr` / `pki` / `gam` (writes
+  assembled bytes). Persisted under `asm8-playground:format`. When a
+  binary format is selected but no successful assembly has happened,
+  the button is disabled; `asm` is always enabled. Binary payloads
   cover `min(start)..max(end)` with gaps zero-filled (no leading
   zero-fill, so `org 3000h` programs stay compact). Tape formats add
   a 4-byte big-endian start/end header and an `E6 + 2-byte checksum`

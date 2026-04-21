@@ -11,8 +11,8 @@ Try it in the browser: **[begoon.github.io/asm8](https://begoon.github.io/asm8/)
 - Live assembly listing — addresses and hex bytes appear in the gutter, wrap at four bytes (click `…` for the full dump).
 - Multi-tab editor. Each tab holds its own filename and source; all tabs and the active index persist in `localStorage`.
 - Built-in examples (`aloha`, `ok`, `sections`, `expressions`, `$`, local labels, `.if/.else`, `.proc/.return`, sokoban, pong, banner, volcano, lestnica). Loading an example always opens a new tab.
-- `upload` / `download` read and write `.asm` files.
-- **download as** dropdown picks the output envelope — `.rk` (default), `.rkr`, `.pki`, `.gam`, or raw `.bin`. Tape formats prepend a 4-byte big-endian start/end header (plus an extra `E6h` sync byte for `.pki` / `.gam`) and append `E6 + 2-byte checksum`. The payload is always packed tight (`min(start)..max(end)`, gaps zero-filled), so `org 3000h` programs stay compact. The choice is persisted in `localStorage`.
+- `upload` reads an `.asm` file into a new tab.
+- **download as** dropdown picks the output — `.asm` (default, writes the current source) or one of `.rk` / `.rkr` / `.pki` / `.gam` / `.bin` (writes the assembled bytes). Tape formats prepend a 4-byte big-endian start/end header (plus an extra `E6h` sync byte for `.pki` / `.gam`) and append `E6 + 2-byte checksum`. Binary payloads are always packed tight (`min(start)..max(end)`, gaps zero-filled), so `org 3000h` programs stay compact. The choice is persisted in `localStorage`.
 - **run** button (or `Ctrl/Cmd+R`) boots the assembled binary in the [rk86.ru](https://rk86.ru/beta) emulator via a `data:` URL — always as `.rk`, regardless of the download format (the emulator's `?run=` handler only accepts that envelope).
 - Dark / light theme toggle.
 
@@ -172,7 +172,7 @@ Each `org` directive creates a new section. The `section name` directive names i
   pop  d / pop  b / pop  h
 ```
 
-  To disambiguate from division, the split only fires when a valid instruction name (or directive, optionally dotted) follows the `/`. So `mvi a, 10 / 2` is still treated as division (`10 / 2 = 5`).
+To disambiguate from division, the split only fires when a valid instruction name (or directive, optionally dotted) follows the `/`. So `mvi a, 10 / 2` is still treated as division (`10 / 2 = 5`).
 
 ## Tests
 

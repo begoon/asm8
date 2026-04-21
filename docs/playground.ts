@@ -10,15 +10,16 @@ const THEME_KEY = "asm8-playground:theme";
 const FORMAT_KEY = "asm8-playground:format";
 const DEFAULT_FILENAME = "program.asm";
 
-type OutputFormat = "bin" | "rk" | "rkr" | "pki" | "gam";
+type OutputFormat = "asm" | "bin" | "rk" | "rkr" | "pki" | "gam";
 const OUTPUT_FORMATS: readonly OutputFormat[] = [
+  "asm",
   "bin",
   "rk",
   "rkr",
   "pki",
   "gam",
 ];
-const DEFAULT_FORMAT: OutputFormat = "rk";
+const DEFAULT_FORMAT: OutputFormat = "asm";
 
 interface Tab {
   filename: string;
@@ -65,11 +66,8 @@ const confirmCancel = document.getElementById(
   "confirm-cancel",
 ) as HTMLButtonElement;
 const uploadBtn = document.getElementById("upload-asm") as HTMLButtonElement;
-const downloadAsmBtn = document.getElementById(
-  "download-asm",
-) as HTMLButtonElement;
-const downloadBinBtn = document.getElementById(
-  "download-bin",
+const downloadBtn = document.getElementById(
+  "download-btn",
 ) as HTMLButtonElement;
 const downloadFormatSel = document.getElementById(
   "download-format",
@@ -351,11 +349,11 @@ function compile() {
     renderHighlight(null);
     errorEl.classList.remove("visible");
     errorEl.textContent = "";
-    downloadBinBtn.disabled = lastSections.length === 0;
+    updateDownloadEnabled();
     runBinBtn.disabled = lastSections.length === 0;
   } catch (e) {
     lastSections = null;
-    downloadBinBtn.disabled = true;
+    updateDownloadEnabled();
     runBinBtn.disabled = true;
     if (e instanceof AsmError) {
       errLine = e.line;
@@ -539,10 +537,6 @@ function findOverlap(sections: Section[]): [Section, Section] | null {
   return null;
 }
 
-downloadAsmBtn.addEventListener("click", () => {
-  downloadBlob(source.value, asmName(), "text/plain");
-});
-
 function buildOutput(format: OutputFormat): Uint8Array | null {
   if (!lastSections || lastSections.length === 0) return null;
   const overlap = findOverlap(lastSections);
@@ -582,13 +576,27 @@ function selectedFormat(): OutputFormat {
   return downloadFormatSel.value as OutputFormat;
 }
 
+// .asm is always available (downloads source); binary formats require a
+// successful assembly (i.e., non-empty lastSections).
+function updateDownloadEnabled() {
+  const fmt = selectedFormat();
+  downloadBtn.disabled =
+    fmt !== "asm" && (!lastSections || lastSections.length === 0);
+}
+
 downloadFormatSel.value = loadFormat();
+updateDownloadEnabled();
 downloadFormatSel.addEventListener("change", () => {
   saveFormat(selectedFormat());
+  updateDownloadEnabled();
 });
 
-downloadBinBtn.addEventListener("click", () => {
+downloadBtn.addEventListener("click", () => {
   const fmt = selectedFormat();
+  if (fmt === "asm") {
+    downloadBlob(source.value, asmName(), "text/plain");
+    return;
+  }
   const data = buildOutput(fmt);
   if (!data) return;
   downloadBlob(data, outputName(fmt), "application/octet-stream");
@@ -647,7 +655,7 @@ fileInput.addEventListener("change", async () => {
 });
 
 const buildTimeEl = document.getElementById("build-time");
-if (buildTimeEl && BUILD_TIME) buildTimeEl.textContent = `build ${BUILD_TIME}`;
+if (buildTimeEl && BUILD_TIME) buildTimeEl.textContent = BUILD_TIME;
 
 themeBtn.addEventListener("click", () => {
   const next: Theme = document.body.classList.contains("theme-light")

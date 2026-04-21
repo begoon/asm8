@@ -1447,7 +1447,7 @@ var EXAMPLES = [
 ];
 
 // docs/build-info.ts
-var BUILD_TIME = "2026-04-21 16:58:48";
+var BUILD_TIME = "2026-04-21 18:59:28";
 
 // docs/playground.ts
 var STORAGE_KEY = "asm8-playground:source";
@@ -1458,13 +1458,14 @@ var THEME_KEY = "asm8-playground:theme";
 var FORMAT_KEY = "asm8-playground:format";
 var DEFAULT_FILENAME = "program.asm";
 var OUTPUT_FORMATS = [
+  "asm",
   "bin",
   "rk",
   "rkr",
   "pki",
   "gam"
 ];
-var DEFAULT_FORMAT = "rk";
+var DEFAULT_FORMAT = "asm";
 var tabs = [];
 var active = 0;
 function applyTheme(t) {
@@ -1495,8 +1496,7 @@ var confirmMessage = document.getElementById("confirm-message");
 var confirmOk = document.getElementById("confirm-ok");
 var confirmCancel = document.getElementById("confirm-cancel");
 var uploadBtn = document.getElementById("upload-asm");
-var downloadAsmBtn = document.getElementById("download-asm");
-var downloadBinBtn = document.getElementById("download-bin");
+var downloadBtn = document.getElementById("download-btn");
 var downloadFormatSel = document.getElementById("download-format");
 var runBinBtn = document.getElementById("run-bin");
 var resetBtn = document.getElementById("reset");
@@ -1747,11 +1747,11 @@ function compile() {
     renderHighlight(null);
     errorEl.classList.remove("visible");
     errorEl.textContent = "";
-    downloadBinBtn.disabled = lastSections.length === 0;
+    updateDownloadEnabled();
     runBinBtn.disabled = lastSections.length === 0;
   } catch (e) {
     lastSections = null;
-    downloadBinBtn.disabled = true;
+    updateDownloadEnabled();
     runBinBtn.disabled = true;
     if (e instanceof AsmError) {
       errLine = e.line;
@@ -1927,9 +1927,6 @@ function findOverlap(sections) {
   }
   return null;
 }
-downloadAsmBtn.addEventListener("click", () => {
-  downloadBlob(source.value, asmName(), "text/plain");
-});
 function buildOutput(format2) {
   if (!lastSections || lastSections.length === 0)
     return null;
@@ -1964,12 +1961,22 @@ function saveFormat(f) {
 function selectedFormat() {
   return downloadFormatSel.value;
 }
+function updateDownloadEnabled() {
+  const fmt = selectedFormat();
+  downloadBtn.disabled = fmt !== "asm" && (!lastSections || lastSections.length === 0);
+}
 downloadFormatSel.value = loadFormat();
+updateDownloadEnabled();
 downloadFormatSel.addEventListener("change", () => {
   saveFormat(selectedFormat());
+  updateDownloadEnabled();
 });
-downloadBinBtn.addEventListener("click", () => {
+downloadBtn.addEventListener("click", () => {
   const fmt = selectedFormat();
+  if (fmt === "asm") {
+    downloadBlob(source.value, asmName(), "text/plain");
+    return;
+  }
   const data = buildOutput(fmt);
   if (!data)
     return;
@@ -2024,7 +2031,7 @@ fileInput.addEventListener("change", async () => {
 });
 var buildTimeEl = document.getElementById("build-time");
 if (buildTimeEl && BUILD_TIME)
-  buildTimeEl.textContent = `build ${BUILD_TIME}`;
+  buildTimeEl.textContent = BUILD_TIME;
 themeBtn.addEventListener("click", () => {
   const next = document.body.classList.contains("theme-light") ? "dark" : "light";
   applyTheme(next);
