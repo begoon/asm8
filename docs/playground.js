@@ -1418,6 +1418,7 @@ function lineInfo(source) {
   }
   return out;
 }
+var DATA_DIRECTIVES = new Set(["DB", "DW", "DS"]);
 if (false) {}
 
 // docs/examples.ts
@@ -1446,7 +1447,7 @@ var EXAMPLES = [
 ];
 
 // docs/build-info.ts
-var BUILD_TIME = "2026-04-20 18:51:06";
+var BUILD_TIME = "2026-04-21 16:58:48";
 
 // docs/playground.ts
 var STORAGE_KEY = "asm8-playground:source";
