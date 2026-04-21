@@ -10,10 +10,10 @@ Try it in the browser: **[begoon.github.io/asm8](https://begoon.github.io/asm8/)
 
 - Live assembly listing — addresses and hex bytes appear in the gutter, wrap at four bytes (click `…` for the full dump).
 - Multi-tab editor. Each tab holds its own filename and source; all tabs and the active index persist in `localStorage`.
-- Built-in examples (`aloha`, `ok`, `sections`, `expressions`, `$`, local labels, `.if/.else`, `.proc/.return`, sokoban, pong, banner, volcano, lestnica). Loading an example always opens a new tab.
+- Built-in example list is **runtime-loaded** from `docs/examples.js`, a plain `<script>` that assigns `window.asm8Examples = [{ name, filename }, ...]` before the bundle runs. A different deployment (e.g. the copy embedded in [rk86-js-v2-svelte](https://github.com/begoon/rk86-js-v2-svelte)) can ship a different dropdown without rebuilding `playground.js` — just edit `examples.js`. Loading an example always opens a new tab.
 - `upload` reads an `.asm` file into a new tab.
 - **download as** dropdown picks the output — `.asm` (default, writes the current source) or one of `.rk` / `.rkr` / `.pki` / `.gam` / `.bin` (writes the assembled bytes). Tape formats prepend a 4-byte big-endian start/end header (plus an extra `E6h` sync byte for `.pki` / `.gam`) and append `E6 + 2-byte checksum`. Binary payloads are always packed tight (`min(start)..max(end)`, gaps zero-filled), so `org 3000h` programs stay compact. The choice is persisted in `localStorage`.
-- **run** button (or `Ctrl/Cmd+R`) boots the assembled binary in the [rk86.ru](https://rk86.ru/beta) emulator via a `data:` URL — always as `.rk`, regardless of the download format (the emulator's `?run=` handler only accepts that envelope).
+- **run** button (or `Ctrl/Cmd+R`) boots the assembled `.rk` in the emulator. Cross-origin (standalone playground → [rk86.ru](https://rk86.ru/beta)) passes the file as a `data:` URL in `?run=`; same-origin embeds hand off through `localStorage["asm8-handoff:<uuid>"]` + `?handoff=<uuid>` to avoid Chrome's URL-length cap on large programs. A same-origin embed activates that path by setting `window.asm8EmulatorUrl = "../"` in `index.html` before the module script.
 - Dark / light theme toggle.
 
 Build locally with `just playground` — regenerates `docs/build-info.ts` and bundles `docs/playground.ts` with Bun.

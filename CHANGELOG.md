@@ -32,12 +32,32 @@
   //   [30 00 30 02  21 00 00  E6 21 21]
   ```
 
-- Playground: new **download as** dropdown picks the output envelope
-  (`.rk`, `.rkr`, `.pki`, `.gam`, or raw `.bin`); the choice persists
-  under `asm8-playground:format`. The **run** button stays pinned to
-  `.rk` because the `rk86.ru/beta/?run=` handler only accepts that
-  envelope. Playground `.bin` no longer zero-fills from address 0 —
-  it matches the tape payload (packed `min(start)..max(end)`).
+- Playground: merged the two download buttons into one **download**
+  button + **as** `<select>` with `.asm` (default — writes the current
+  source), `.rk`, `.rkr`, `.pki`, `.gam`, and `.bin`. Choice persists
+  under `asm8-playground:format`. `.asm` is always enabled; binary
+  formats require a successful assembly. Playground `.bin` no longer
+  zero-fills from address 0 — it matches the tape payload (packed
+  `min(start)..max(end)`).
+
+- Playground run path: same-origin embeds now hand the `.rk` off
+  through `localStorage["asm8-handoff:<uuid>"]` and open the emulator
+  with `?handoff=<uuid>`, sidestepping Chrome's ~2 MB query-length
+  cap (HTTP 431) for large programs. Cross-origin deployments (the
+  standalone asm8 playground on GitHub Pages targeting rk86.ru) fall
+  back to the existing `?run=<dataUrl>`. The emulator target defaults
+  to `https://rk86.ru/beta/index.html`; same-origin embeds override
+  it via `window.asm8EmulatorUrl = "../"` in `index.html` before the
+  `<script type="module" src="playground.js">` tag. Stale handoff
+  keys (>1 h old) are swept on each write.
+
+- Playground examples list is now a runtime-loaded manifest instead
+  of a bundled import: `docs/examples.js` (plain `<script>`) sets
+  `window.asm8Examples = [{ name, filename }, ...]` and is loaded by
+  `index.html` before `playground.js`. Deployments can ship a
+  different example list (or reorder / relabel entries) just by
+  editing `examples.js` — no rebuild. Bundle shrank ~700 B as a
+  side effect.
 
 ## 1.0.23 — 2026-04-20
 

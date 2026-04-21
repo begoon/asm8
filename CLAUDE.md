@@ -27,7 +27,9 @@ docs/                    browser playground (GitHub Pages served from here)
   index.html             playground shell
   style.css              theme vars + layout
   playground.ts          editor glue (bundled to playground.js via `just playground`)
-  examples.ts            manifest of examples (lazy `fetch("examples/*.asm")` at load)
+  examples.js            runtime-loaded manifest — sets `window.asm8Examples`,
+                         loaded by index.html before playground.js; edit to change
+                         the example dropdown in a deployment without rebuilding
   examples/*.asm         example sources — edit these directly, no rebuild needed
   build-info.ts          generated at build time; holds BUILD_TIME constant
 MONITOR.md               RK86 monitor ROM jump table (F800–F833) + notes
@@ -170,11 +172,16 @@ Single-page editor deployed via GitHub Pages at
 [begoon.github.io/asm8](https://begoon.github.io/asm8/). Run locally with
 `just playground` — it regenerates `docs/build-info.ts` (via `date`), then
 `bun build docs/playground.ts --target=browser --format=esm` bundles
-everything into `docs/playground.js`. Examples are **not** inlined into the
-bundle: `examples.ts` kicks off parallel `fetch("examples/<name>.asm")`
-calls at module load, and the select / reset / init paths `await ex.source`
-when they need the text. Editing an example = editing the .asm under
-`docs/examples/`, no rebuild required.
+everything into `docs/playground.js`.
+
+The **example list** is _not_ compiled into the bundle: `docs/examples.js`
+is a plain `<script>` (loaded synchronously in `index.html` before the
+module script) that assigns `window.asm8Examples = [{ name, filename }, ...]`.
+`playground.ts` reads that global on startup and kicks off parallel
+`fetch("examples/<name>.asm")` calls; the select / reset / init paths
+`await ex.source` when they need the text. Editing `examples.js` (to add
+or reorder entries, ship a different list per deployment) and editing the
+`.asm` under `docs/examples/` both apply without rebuilding.
 
 The editor is multi-tab. State lives under two keys:
 
@@ -208,9 +215,21 @@ Conventions:
   trailer (rk86CheckSum); `.pki` / `.gam` also prepend an `E6` sync
   byte. `.bin` is the raw payload.
 - **run** is wired to `.rk` regardless of the dropdown — the
-  rk86.ru/beta/?run= handler only accepts that envelope. It
-  base64-encodes the `.rk`, wraps it in a `data:` URL, and opens a
-  new tab. `Ctrl/Cmd+R` triggers it.
+  emulator's autoload handler only accepts that envelope.
+  `Ctrl/Cmd+R` triggers it. Target URL is `EMULATOR_URL`, defaulting
+  to `https://rk86.ru/beta/index.html`; a same-origin embed can
+  override via `window.asm8EmulatorUrl = "../"` in index.html
+  _before_ the `<script type="module" src="playground.js">` tag.
+  The run path autodetects origin:
+  - **Same-origin** (e.g. the svelte mirror at `/asm/`): write
+    `{ts, url: dataUrl}` JSON to `localStorage["asm8-handoff:<uuid>"]`
+    and open `EMULATOR_URL?handoff=<uuid>`. The emulator's boot.ts
+    reads + deletes the key one-shot. Avoids Chrome's ~2 MB query
+    length cap (HTTP 431) for large programs. Stale keys older than
+    1 h are swept on each write.
+  - **Cross-origin** (standalone playground → rk86.ru): fall back to
+    `EMULATOR_URL?run=<dataUrl>`. Works up to the browser's URL
+    length limit.
 
 The in-page confirm modal replaces `window.confirm()` because Chrome
 suppresses native dialogs when the originating tab isn't foregrounded.

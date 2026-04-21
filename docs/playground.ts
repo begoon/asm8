@@ -1,6 +1,34 @@
 import { asm, lineInfo, AsmError, type LineInfo, type Section } from "../asm8";
-import { EXAMPLES } from "./examples";
 import { BUILD_TIME } from "./build-info";
+
+// The "Example" dropdown is populated from a runtime-loaded manifest —
+// docs/examples.js defines `window.asm8Examples` as
+// `[{ name, filename }, ...]` and is loaded by a classic `<script>` tag
+// before this module runs. Each entry's `source` is a Promise kicked off
+// immediately so tab-switching feels instant.
+interface Example {
+  name: string;
+  filename: string;
+  source: Promise<string>;
+}
+interface ExampleManifestEntry {
+  name: string;
+  filename: string;
+}
+declare global {
+  interface Window {
+    asm8Examples?: ExampleManifestEntry[];
+  }
+}
+
+const fetchExample = (f: string): Promise<string> =>
+  fetch(`examples/${f}`).then((r) => r.text());
+
+const EXAMPLES: Example[] = (window.asm8Examples ?? []).map((e) => ({
+  name: e.name,
+  filename: e.filename,
+  source: fetchExample(e.filename),
+}));
 
 const STORAGE_KEY = "asm8-playground:source";
 const FILENAME_KEY = "asm8-playground:filename";
@@ -602,15 +630,82 @@ downloadBtn.addEventListener("click", () => {
   downloadBlob(data, outputName(fmt), "application/octet-stream");
 });
 
-// The rk86.ru emulator's ?run= handler expects the .rk tape envelope,
-// so force that format for Run regardless of what the user picked for
-// download.
+// The emulator's autoload handlers expect the .rk tape envelope, so
+// Run always produces .rk regardless of the download-format dropdown.
+//
+// Two delivery paths:
+//
+// 1. Same-origin embed (e.g. the rk86-js-v2-svelte mirror at /asm/):
+//    we stash the .rk data-URL in localStorage under
+//    `asm8-handoff:<uuid>` and open the emulator with `?handoff=<uuid>`.
+//    The emulator's boot.ts reads and deletes the key one-shot. This
+//    avoids Chrome's ~2 MB URL-length cap (HTTP 431) for large
+//    programs.
+//
+// 2. Cross-origin (standalone asm8 playground targeting rk86.ru):
+//    we fall back to `?run=<dataUrl>`. Works up to the browser's URL
+//    length limit.
+//
+// The target emulator URL defaults to rk86.ru; a same-origin embed
+// can override it via `window.asm8EmulatorUrl = "../"` in index.html
+// (before the playground.js <script type="module"> tag).
+const EMULATOR_URL_DEFAULT = "https://rk86.ru/beta/index.html";
+const EMULATOR_URL =
+  (window as unknown as { asm8EmulatorUrl?: string }).asm8EmulatorUrl ??
+  EMULATOR_URL_DEFAULT;
+
+const HANDOFF_PREFIX = "asm8-handoff:";
+const HANDOFF_TTL_MS = 60 * 60 * 1000;
+
+function sweepStaleHandoffs() {
+  try {
+    const now = Date.now();
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (!key || !key.startsWith(HANDOFF_PREFIX)) continue;
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      try {
+        const { ts } = JSON.parse(raw) as { ts?: number };
+        if (!ts || now - ts > HANDOFF_TTL_MS) localStorage.removeItem(key);
+      } catch {
+        localStorage.removeItem(key);
+      }
+    }
+  } catch {}
+}
+
+function newHandoffId(): string {
+  const c = (globalThis as { crypto?: Crypto }).crypto;
+  if (c && typeof c.randomUUID === "function") return c.randomUUID();
+  return `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
+}
+
 runBinBtn.addEventListener("click", () => {
   const rk = buildOutput("rk");
   if (!rk) return;
+  const target = new URL(EMULATOR_URL, location.href);
   const dataUrl = `data:;name=${outputName("rk")};base64,${toBase64(rk)}`;
-  const runUrl = `https://rk86.ru/beta/index.html?run=${encodeURIComponent(dataUrl)}`;
-  window.open(runUrl, "_blank", "noopener");
+
+  if (target.origin === location.origin) {
+    sweepStaleHandoffs();
+    const id = newHandoffId();
+    try {
+      localStorage.setItem(
+        HANDOFF_PREFIX + id,
+        JSON.stringify({ ts: Date.now(), url: dataUrl }),
+      );
+    } catch (e) {
+      alert(
+        `localStorage unavailable, cannot hand off to emulator: ${(e as Error).message}`,
+      );
+      return;
+    }
+    target.searchParams.set("handoff", id);
+  } else {
+    target.searchParams.set("run", dataUrl);
+  }
+  window.open(target.toString(), "_blank", "noopener");
 });
 
 uploadBtn.addEventListener("click", () => fileInput.click());
