@@ -256,6 +256,89 @@ describe("CLI: --format tape wrappers", () => {
     expect(b[1]).toBe(0x00);
   });
 
+  test("--trailer-padding (bare) injects 2 zeros before the E6 trailer; cs unchanged", () => {
+    const a = write("pad2.asm", "org 3000h\nlxi h, 0\nend\n");
+    const outDir = join(TMP, "out-pad2");
+    const r = run([a, "--format", "rk", "--trailer-padding", "-o", outDir]);
+    expect(r.code).toBe(0);
+    const b = readFileSync(join(outDir, "pad2.rk"));
+    expect(Array.from(b)).toEqual([
+      0x30,
+      0x00,
+      0x30,
+      0x02, // header
+      0x21,
+      0x00,
+      0x00, // payload (21 00 00)
+      0x00,
+      0x00, // 2 trailer-padding zeros
+      0xe6,
+      0x21,
+      0x21, // sync + checksum (same as no-padding)
+    ]);
+  });
+
+  test("--trailer-padding 5 injects exactly 5 zeros; cs still covers payload only", () => {
+    const a = write("pad5.asm", "org 3000h\nlxi h, 0\nend\n");
+    const outDir = join(TMP, "out-pad5");
+    const r = run([
+      a,
+      "--format",
+      "rk",
+      "--trailer-padding",
+      "5",
+      "-o",
+      outDir,
+    ]);
+    expect(r.code).toBe(0);
+    const b = readFileSync(join(outDir, "pad5.rk"));
+    expect(Array.from(b)).toEqual([
+      0x30, 0x00, 0x30, 0x02, 0x21, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0xe6, 0x21, 0x21,
+    ]);
+  });
+
+  test("--trailer-padding 3 on .pki lands before E6 trailer, after leading sync", () => {
+    const a = write("padpki.asm", "org 3000h\nlxi h, 0\nend\n");
+    const outDir = join(TMP, "out-padpki");
+    const r = run([
+      a,
+      "--format",
+      "pki",
+      "--trailer-padding",
+      "3",
+      "-o",
+      outDir,
+    ]);
+    expect(r.code).toBe(0);
+    const b = readFileSync(join(outDir, "padpki.pki"));
+    expect(Array.from(b)).toEqual([
+      0xe6, // leading sync
+      0x30,
+      0x00,
+      0x30,
+      0x02,
+      0x21,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x00, // 3 trailer-padding zeros
+      0xe6,
+      0x21,
+      0x21,
+    ]);
+  });
+
+  test("omitting --trailer-padding produces the legacy (no padding) layout", () => {
+    const a = write("nopad.asm", "org 3000h\nlxi h, 0\nend\n");
+    const outDir = join(TMP, "out-nopad");
+    const r = run([a, "--format", "rk", "-o", outDir]);
+    expect(r.code).toBe(0);
+    const b = readFileSync(join(outDir, "nopad.rk"));
+    expect(b.length).toBe(4 + 3 + 3); // header + payload + trailer, no padding
+  });
+
   test(".bin (default) still zero-fills from addr 0 (legacy behavior)", () => {
     const a = write("legacy.asm", "org 100h\nhlt\nend\n");
     const outDir = join(TMP, "out-legacy");

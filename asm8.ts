@@ -1845,18 +1845,23 @@ const RK_FORMATS: readonly RkFormat[] = ["bin", "rk", "rkr", "pki", "gam"];
 
 // Wrap a payload in a Radio-86RK tape-file envelope.
 //   bin       -> payload unchanged
-//   rk, rkr   -> [start_hi, start_lo, end_hi, end_lo] + payload + [E6, cs_hi, cs_lo]
+//   rk, rkr   -> [start_hi, start_lo, end_hi, end_lo] + payload
+//                + trailerPadding zero bytes + [E6, cs_hi, cs_lo]
 //   pki, gam  -> [E6] ++ rk layout (leading sync byte added)
-// Addresses are big-endian and `end` is inclusive. Checksum is rk86CheckSum.
+// Addresses are big-endian and `end` is inclusive. Checksum is rk86CheckSum
+// and covers only the payload (padding and sync bytes are not included).
 export function wrapRk86File(
   payload: Uint8Array,
   start: number,
   end: number,
   format: RkFormat,
+  trailerPadding = 0,
 ): Uint8Array {
   if (format === "bin") return payload;
   const hasSync = format === "pki" || format === "gam";
-  const out = new Uint8Array((hasSync ? 5 : 4) + payload.length + 3);
+  const out = new Uint8Array(
+    (hasSync ? 5 : 4) + payload.length + trailerPadding + 3,
+  );
   let o = 0;
   if (hasSync) out[o++] = 0xe6;
   out[o++] = (start >> 8) & 0xff;
@@ -1864,7 +1869,7 @@ export function wrapRk86File(
   out[o++] = (end >> 8) & 0xff;
   out[o++] = end & 0xff;
   out.set(payload, o);
-  o += payload.length;
+  o += payload.length + trailerPadding;
   const checksum = rk86CheckSum(payload);
   out[o++] = 0xe6;
   out[o++] = (checksum >> 8) & 0xff;
@@ -1913,6 +1918,12 @@ Options:
                     Addresses are big-endian (end inclusive); cs uses the
                     RK86 tape checksum. Using a non-bin format together
                     with --split and multiple sections is an error.
+  --trailer-padding [N]
+                    inject N zero bytes between the payload and the
+                    [E6 cs_hi cs_lo] trailer of a tape-file envelope
+                    (rk/rkr/pki/gam). N defaults to 2 when the flag is
+                    given without a number. Ignored for --format bin.
+                    Padding is not included in the checksum.
   -l                generate listing (.lst), symbol table (.sym), section
                     map (.map), and structured listing (.json) files
   -o <dir>          output directory (default: current directory)
@@ -1934,6 +1945,10 @@ Options:
     );
     process.exit(1);
   }
+  const rawPadding = arg(args, "--trailer-padding", "2", /^\d+$/) as
+    | string
+    | undefined;
+  const trailerPadding = rawPadding === undefined ? 0 : Number(rawPadding);
 
   const files = args;
   if (files.length === 0) {
@@ -1978,6 +1993,7 @@ Options:
       s.start,
       s.end,
       format,
+      trailerPadding,
     );
     const path = join(outDir, `${base}.${format}`);
     writeFileSync(path, wrapped);
@@ -2009,7 +2025,13 @@ Options:
     const bufOrigin = format === "bin" ? 0 : firstStart;
     const buf = new Uint8Array(maxEnd - bufOrigin + 1);
     for (const s of sections) buf.set(s.data, s.start - bufOrigin);
-    const wrapped = wrapRk86File(buf, firstStart, maxEnd, format);
+    const wrapped = wrapRk86File(
+      buf,
+      firstStart,
+      maxEnd,
+      format,
+      trailerPadding,
+    );
     const path = join(outDir, `${base}.${format}`);
     writeFileSync(path, wrapped);
     console.log(path);

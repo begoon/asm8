@@ -47,6 +47,13 @@ Options:
 
   Addresses are big-endian and `end` is **inclusive**. Checksum is the monitor's `chksum` routine (`F82Ah`) — every byte except the last feeds both halves of a 16-bit sum (`lo += b, hi += b + carry`); the last byte adds to the low half only. For tape formats the payload is packed tight from `min(start)..max(end)` (no leading zero fill). `.bin` keeps its legacy "load at address 0" layout. Combining a non-bin format with `--split` and more than one section is a hard error.
 
+- `--trailer-padding [N]` — inject `N` zero bytes between the payload and the `E6 cs_hi cs_lo` trailer of a tape-file envelope (`rk` / `rkr` / `pki` / `gam`). Useful when a loader needs a quiet gap before re-syncing on the checksum marker. `N` defaults to `2` when the flag is given without a number; omitting the flag entirely yields the legacy no-padding layout. Ignored for `--format bin`. Padding is **not** included in the checksum.
+
+  ```sh
+  bun run asm8.ts prog.asm --format rk --trailer-padding       # 2 zeros
+  bun run asm8.ts prog.asm --format rk --trailer-padding 5     # 5 zeros
+  ```
+
 - `-l` — generate listing (`.lst`), symbol table (`.sym`), section map (`.map`), and structured listing (`.json`) files
 - `-o <dir>` — output directory (created if needed)
 - `-v`, `--version` — print version

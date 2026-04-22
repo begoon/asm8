@@ -290,6 +290,20 @@ suppresses native dialogs when the originating tab isn't foregrounded.
   bun run asm8.ts prog.asm --format gam -o out  # out/prog.gam
   ```
 
+- `--trailer-padding [N]` — for tape envelopes (`rk` / `rkr` / `pki` /
+  `gam`), insert `N` zero bytes between the payload and the `E6 cs_hi
+cs_lo` trailer. `N` defaults to `2` when the flag is given without a
+  number; omitting the flag preserves the legacy no-padding layout.
+  No-op under `--format bin`. Padding is **not** fed through
+  `rk86CheckSum` — the checksum is still computed over the payload
+  alone, so `--trailer-padding` only changes file size and layout, not
+  the trailer bytes.
+
+  ```sh
+  bun run asm8.ts prog.asm --format rk --trailer-padding     # 2 zeros
+  bun run asm8.ts prog.asm --format rk --trailer-padding 5   # 5 zeros
+  ```
+
 - `-l` — generate listing (`.lst`) with addresses/hex bytes/source, symbol
   table (`.sym`), section map (`.map`), and structured listing (`.json`). The
   JSON is `{ version: 2, code, symbols, map }` — see README.md for the full
