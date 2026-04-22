@@ -87,20 +87,22 @@ F800-FFFF   2048 bytes
 Total: 2048 bytes in 1 section
 ```
 
-The `.json` file contains the same information in a machine-readable form, split into `code`, `symbols`, and `map`:
+The `.json` file contains the same information in a machine-readable form, split into `code`, `symbols`, and `map`, with a top-level `version` field:
 
 ```json
 {
+  "version": 2,
   "code": [
     {
       "line": 4,
       "label": "start",
       "op": "mvi",
       "addr": "0100",
-      "bytes": "3E 42",
-      "chars": ">B",
-      "arg1": "a",
-      "arg2": "42h",
+      "length": 2,
+      "bytes": ["3E", "42"],
+      "chars": [">", "B"],
+      "arg1": { "text": "a", "type": "reg", "value": 7 },
+      "arg2": { "text": "42h", "type": "imm8", "value": 66 },
       "comment": "; load"
     },
     {
@@ -108,9 +110,21 @@ The `.json` file contains the same information in a machine-readable form, split
       "label": "msg",
       "op": "db",
       "addr": "0106",
-      "bytes": "48 69 00",
-      "chars": "Hi.",
-      "data": "'Hi', 0"
+      "length": 3,
+      "bytes": ["48", "69", "00"],
+      "chars": ["H", "i", "."],
+      "data": {
+        "kind": "db",
+        "parts": [
+          {
+            "text": "'Hi'",
+            "bytes": ["48", "69"],
+            "values": [72, 105],
+            "chars": ["H", "i"]
+          },
+          { "text": "0", "bytes": ["00"], "values": [0], "chars": ["."] }
+        ]
+      }
     }
   ],
   "symbols": { "MSG": "0106", "START": "0100" },
@@ -121,7 +135,76 @@ The `.json` file contains the same information in a machine-readable form, split
 }
 ```
 
-Each `code` entry has `line` plus any relevant subset of `addr`, `bytes`, `chars`, `label`, `op`, `arg1`/`arg2` (instructions) or `data` (`db`/`dw`/`ds`), and `comment` (`;`-prefixed).
+### `code` entries
+
+Every entry has `line` (1-based source line). The rest is optional and applies where meaningful:
+
+- `addr` — 4-char hex address of the instruction or directive
+- `length` — bytes produced by this line
+- `bytes` — 2-char hex per emitted byte, one element per byte
+- `chars` — printable char per byte (1:1 with `bytes`, `"."` for non-printable)
+- `label`, `op` (lowercase), `comment` (`;`-prefixed, verbatim)
+- `arg1` / `arg2` — see **Argument shape** below (instructions, `org`, `equ`, `section`)
+- `data` — see **Data directives** below (`db` / `dw` / `ds`)
+
+### Argument shape
+
+Each instruction operand is an object:
+
+```ts
+{
+  text: string,          // verbatim operand text from the source
+  type: "reg" | "regpair" | "imm8" | "imm16"
+      | "addr16" | "port8" | "rst" | "name",
+  value?: number         // evaluated numeric value (absent for type "name")
+}
+```
+
+`value` semantics per `type`:
+
+| type      | value                                                                       |
+| --------- | --------------------------------------------------------------------------- |
+| `reg`     | i8080 3-bit register field: B=0, C=1, D=2, E=3, H=4, L=5, M=6, A=7          |
+| `regpair` | i8080 2-bit `rp` field: BC=0, DE=1, HL=2, SP=3, PSW=3 (use `text` to split) |
+| `imm8`    | 8-bit immediate (`MVI`, `ADI` …, `CPI`)                                     |
+| `imm16`   | 16-bit immediate (`LXI rp, n16`; also used for `ORG`, `EQU`)                |
+| `addr16`  | 16-bit absolute address (`JMP`, `CALL`, conditional J*/C*, `LDA`/`STA`, …)  |
+| `port8`   | 8-bit port number (`IN`, `OUT`)                                             |
+| `rst`     | RST vector index 0..7                                                       |
+| `name`    | identifier (section name); no `value` emitted                               |
+
+Example: `LXI H, 1234h` →
+
+```json
+"arg1": { "text": "H",     "type": "regpair", "value": 2 },
+"arg2": { "text": "1234h", "type": "imm16",   "value": 4660 }
+```
+
+SP and PSW share encoding `3`; disambiguate by reading `text` or `op`.
+
+### Data directives (`db` / `dw` / `ds`)
+
+`db` and `dw` produce a `parts` array, one element per comma-separated source segment. Each part:
+
+```ts
+{
+  text: string,      // verbatim source fragment
+  bytes: string[],   // 2-char hex bytes (DW is little-endian: "dw 1234h" -> ["34","12"])
+  values: number[],  // db: byte values (0..255);  dw: word values (0..65535)
+  chars: string[]    // 1:1 with bytes, "." for non-printable
+}
+```
+
+`ds` has no literal bytes — instead:
+
+```json
+"data": { "kind": "ds", "size": 16 }          // ds 16
+"data": { "kind": "ds", "size": 16, "fill": 255 }  // ds 16 (0FFh)
+```
+
+### Versioning
+
+The top-level `"version": 2` field is stable. Future schema changes will bump this number; consumers should read `version` and branch on it.
 
 ## API
 

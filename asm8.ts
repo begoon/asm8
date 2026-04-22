@@ -1402,23 +1402,154 @@ export function listing(source: string): string {
     .join("\n");
 }
 
-export interface LineJson {
+export type ListingArgType =
+  | "reg"
+  | "regpair"
+  | "imm8"
+  | "imm16"
+  | "addr16"
+  | "port8"
+  | "rst"
+  | "name";
+
+export interface ListingArg {
+  text: string;
+  type: ListingArgType;
+  value?: number;
+}
+
+export interface ListingPart {
+  text: string;
+  bytes: string[];
+  values: number[];
+  chars: string[];
+}
+
+export type ListingData =
+  | { kind: "db"; parts: ListingPart[] }
+  | { kind: "dw"; parts: ListingPart[] }
+  | { kind: "ds"; size: number; fill?: number };
+
+export interface ListingLine {
   line: number;
   addr?: string;
-  bytes?: string;
-  chars?: string;
+  length?: number;
+  bytes?: string[];
+  chars?: string[];
   label?: string;
   op?: string;
-  arg1?: string;
-  arg2?: string;
-  data?: string;
+  arg1?: ListingArg;
+  arg2?: ListingArg;
+  data?: ListingData;
   comment?: string;
 }
 
-function charsOf(bytes: number[]): string {
-  return bytes
-    .map((b) => (b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : "."))
-    .join("");
+function charOf(b: number): string {
+  return b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : ".";
+}
+
+function charsOf(bytes: number[]): string[] {
+  return bytes.map(charOf);
+}
+
+function argType(m: string, idx: number): ListingArgType {
+  if (m === "MOV") return "reg";
+  if (m === "MVI") return idx === 0 ? "reg" : "imm8";
+  if (m === "INR" || m === "DCR") return "reg";
+  if (m in ALU_REG) return "reg";
+  if (m in ALU_IMM) return "imm8";
+  if (m in ADDR16) return "addr16";
+  if (m === "LXI") return idx === 0 ? "regpair" : "imm16";
+  if (m === "DAD" || m === "INX" || m === "DCX") return "regpair";
+  if (m === "PUSH" || m === "POP") return "regpair";
+  if (m === "LDAX" || m === "STAX") return "regpair";
+  if (m === "IN" || m === "OUT") return "port8";
+  if (m === "RST") return "rst";
+  if (m === "ORG" || m === "EQU") return "imm16";
+  if (m === "SECTION") return "name";
+  return "imm16";
+}
+
+function buildArg(
+  m: string,
+  idx: number,
+  text: string,
+  symbols: Map<string, number>,
+  pc: number,
+  lastLabel: string,
+): ListingArg {
+  const type = argType(m, idx);
+  const arg: ListingArg = { text, type };
+  if (type === "reg") {
+    arg.value = REG8[text.toUpperCase()];
+  } else if (type === "regpair") {
+    const up = text.toUpperCase();
+    arg.value = up === "PSW" ? 3 : (REG_PAIR[up] ?? REG_PAIR_PUSH[up]);
+  } else if (type !== "name") {
+    const v = evalExpr(text, symbols, pc, lastLabel);
+    const mask = type === "imm16" || type === "addr16" ? 0xffff : 0xff;
+    arg.value = v & mask;
+  }
+  return arg;
+}
+
+function dbPart(
+  text: string,
+  symbols: Map<string, number>,
+  pc: number,
+  lastLabel: string,
+): ListingPart {
+  const quoted =
+    (text.startsWith('"') && text.endsWith('"')) ||
+    (text.startsWith("'") && text.endsWith("'"));
+  const bytes: number[] = [];
+  if (quoted) {
+    for (const ch of text.slice(1, -1)) bytes.push(ch.charCodeAt(0));
+  } else {
+    bytes.push(evalExpr(text, symbols, pc, lastLabel) & 0xff);
+  }
+  return {
+    text,
+    bytes: bytes.map(hex2),
+    values: bytes.slice(),
+    chars: bytes.map(charOf),
+  };
+}
+
+function dwPart(
+  text: string,
+  symbols: Map<string, number>,
+  pc: number,
+  lastLabel: string,
+): ListingPart {
+  const v = evalExpr(text, symbols, pc, lastLabel) & 0xffff;
+  const lo = v & 0xff;
+  const hi = (v >> 8) & 0xff;
+  return {
+    text,
+    bytes: [hex2(lo), hex2(hi)],
+    values: [v],
+    chars: [charOf(lo), charOf(hi)],
+  };
+}
+
+function dsData(
+  operands: string[],
+  symbols: Map<string, number>,
+  pc: number,
+  lastLabel: string,
+): { kind: "ds"; size: number; fill?: number } {
+  if (operands.length !== 1)
+    throw new Error("DS takes one operand: count [(fill)]");
+  const m = operands[0].match(/^(.+?)\s+\((.+)\)\s*$/);
+  const countText = m ? m[1] : operands[0];
+  const size = evalExpr(countText, symbols, pc, lastLabel);
+  const out: { kind: "ds"; size: number; fill?: number } = {
+    kind: "ds",
+    size,
+  };
+  if (m) out.fill = evalExpr(m[2], symbols, pc, lastLabel) & 0xff;
+  return out;
 }
 
 function extractComment(line: string): string | undefined {
@@ -1438,10 +1569,10 @@ function extractComment(line: string): string | undefined {
 
 const DATA_DIRECTIVES = new Set(["DB", "DW", "DS"]);
 
-export function lineJson(source: string): LineJson[] {
+export function lineJson(source: string): ListingLine[] {
   const pp = preprocess(source);
   const symbols = collectSymbols(pp);
-  const out: LineJson[] = [];
+  const out: ListingLine[] = [];
   let pc = 0;
   let lastLabel = "";
   let done = false;
@@ -1465,13 +1596,17 @@ export function lineJson(source: string): LineJson[] {
           lastLabel = parts.label;
         }
 
-        const entry: LineJson = { line: orig };
+        const entry: ListingLine = { line: orig };
         if (parts.label) entry.label = parts.label;
 
         if (parts.isEqu) {
           const val = evalExpr(parts.operands[0], symbols, pc, lastLabel);
           entry.op = "equ";
-          entry.arg1 = parts.operands[0];
+          entry.arg1 = {
+            text: parts.operands[0],
+            type: "imm16",
+            value: val & 0xffff,
+          };
           entry.addr = hex4(val);
           if (comment) entry.comment = comment;
           out.push(entry);
@@ -1491,14 +1626,32 @@ export function lineJson(source: string): LineJson[] {
         if (m === "ORG") {
           pc = evalExpr(parts.operands[0], symbols, pc, lastLabel);
           entry.addr = hex4(pc);
-          if (parts.operands[0]) entry.arg1 = parts.operands[0];
+          if (parts.operands[0]) {
+            entry.arg1 = buildArg(
+              m,
+              0,
+              parts.operands[0],
+              symbols,
+              pc,
+              lastLabel,
+            );
+          }
           if (comment) entry.comment = comment;
           out.push(entry);
           continue;
         }
 
         if (m === "SECTION") {
-          if (parts.operands[0]) entry.arg1 = parts.operands[0];
+          if (parts.operands[0]) {
+            entry.arg1 = buildArg(
+              m,
+              0,
+              parts.operands[0],
+              symbols,
+              pc,
+              lastLabel,
+            );
+          }
           if (comment) entry.comment = comment;
           out.push(entry);
           continue;
@@ -1514,11 +1667,12 @@ export function lineJson(source: string): LineJson[] {
         entry.addr = hex4(pc);
 
         if (m === "DS") {
-          const n = countDs(parts.operands, symbols, pc, lastLabel);
-          entry.data = parts.operands.join(", ");
+          const data = dsData(parts.operands, symbols, pc, lastLabel);
+          entry.length = data.size;
+          entry.data = data;
           if (comment) entry.comment = comment;
           out.push(entry);
-          pc += n;
+          pc += data.size;
           continue;
         }
 
@@ -1530,15 +1684,42 @@ export function lineJson(source: string): LineJson[] {
               : encode(m, parts.operands, symbols, pc, lastLabel);
 
         if (bytes.length) {
-          entry.bytes = bytes.map(hex2).join(" ");
+          entry.length = bytes.length;
+          entry.bytes = bytes.map(hex2);
           entry.chars = charsOf(bytes);
         }
 
-        if (DATA_DIRECTIVES.has(m)) {
-          entry.data = parts.operands.join(", ");
+        if (m === "DB") {
+          entry.data = {
+            kind: "db",
+            parts: parts.operands.map((t) => dbPart(t, symbols, pc, lastLabel)),
+          };
+        } else if (m === "DW") {
+          entry.data = {
+            kind: "dw",
+            parts: parts.operands.map((t) => dwPart(t, symbols, pc, lastLabel)),
+          };
         } else {
-          if (parts.operands[0]) entry.arg1 = parts.operands[0];
-          if (parts.operands[1]) entry.arg2 = parts.operands[1];
+          if (parts.operands[0]) {
+            entry.arg1 = buildArg(
+              m,
+              0,
+              parts.operands[0],
+              symbols,
+              pc,
+              lastLabel,
+            );
+          }
+          if (parts.operands[1]) {
+            entry.arg2 = buildArg(
+              m,
+              1,
+              parts.operands[1],
+              symbols,
+              pc,
+              lastLabel,
+            );
+          }
         }
         if (comment) entry.comment = comment;
 
@@ -1572,7 +1753,8 @@ export interface MapJson {
 }
 
 export interface AsmJson {
-  code: LineJson[];
+  version: 2;
+  code: ListingLine[];
   symbols: Record<string, string>;
   map: MapJson;
 }
@@ -1608,6 +1790,7 @@ export function sectionMapJson(sections: Section[]): MapJson {
 
 export function asmJson(source: string, sections: Section[]): AsmJson {
   return {
+    version: 2,
     code: lineJson(source),
     symbols: symbolsJson(source),
     map: sectionMapJson(sections),

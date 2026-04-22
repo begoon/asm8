@@ -80,7 +80,7 @@ describe("CLI: multiple input files", () => {
     expect(lst).toContain("hlt");
   });
 
-  test("-l writes structured .json with addr/bytes/chars/op/args/data/comment", () => {
+  test("-l writes structured v2 .json with typed args and part-wise db/dw/ds data", () => {
     const src = [
       "        org 100h",
       "start:  mvi a, 42h      ; load",
@@ -96,36 +96,59 @@ describe("CLI: multiple input files", () => {
     expect(r.code).toBe(0);
 
     const j = JSON.parse(readFileSync(join(outDir, "j.json"), "utf-8"));
-    expect(Object.keys(j).sort()).toEqual(["code", "map", "symbols"]);
+    expect(j.version).toBe(2);
+    expect(Object.keys(j).sort()).toEqual([
+      "code",
+      "map",
+      "symbols",
+      "version",
+    ]);
 
     const org = j.code.find((e: any) => e.op === "org");
-    expect(org).toMatchObject({ addr: "0100", arg1: "100h" });
+    expect(org).toMatchObject({
+      addr: "0100",
+      arg1: { text: "100h", type: "imm16", value: 0x0100 },
+    });
 
     const mvi = j.code.find((e: any) => e.op === "mvi");
     expect(mvi).toMatchObject({
       label: "start",
       addr: "0100",
-      bytes: "3E 42",
-      arg1: "a",
-      arg2: "42h",
+      length: 2,
+      bytes: ["3E", "42"],
+      chars: [">", "B"],
+      arg1: { text: "a", type: "reg", value: 7 },
+      arg2: { text: "42h", type: "imm8", value: 0x42 },
       comment: "; load",
     });
-    expect(mvi.chars).toHaveLength(2);
 
     const jmp = j.code.find((e: any) => e.op === "jmp");
     expect(jmp).toMatchObject({
       addr: "0102",
-      bytes: "C3 05 01",
-      arg1: "done",
+      length: 3,
+      bytes: ["C3", "05", "01"],
+      arg1: { text: "done", type: "addr16", value: 0x0105 },
     });
 
     const db = j.code.find((e: any) => e.op === "db");
     expect(db).toMatchObject({
       label: "msg",
       addr: "0106",
-      bytes: "48 69 00",
-      chars: "Hi.",
-      data: "'Hi', 0",
+      length: 3,
+      bytes: ["48", "69", "00"],
+      chars: ["H", "i", "."],
+      data: {
+        kind: "db",
+        parts: [
+          {
+            text: "'Hi'",
+            bytes: ["48", "69"],
+            values: [72, 105],
+            chars: ["H", "i"],
+          },
+          { text: "0", bytes: ["00"], values: [0], chars: ["."] },
+        ],
+      },
     });
 
     expect(j.symbols).toMatchObject({

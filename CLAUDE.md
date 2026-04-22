@@ -292,14 +292,27 @@ suppresses native dialogs when the originating tab isn't foregrounded.
 
 - `-l` — generate listing (`.lst`) with addresses/hex bytes/source, symbol
   table (`.sym`), section map (`.map`), and structured listing (`.json`). The
-  JSON is `{ code, symbols, map }`:
-  - `code` — array of per-statement entries with fields `line`, `addr`,
-    `bytes`, `chars`, `label`, `op`, `arg1`/`arg2` (instructions) or `data`
-    (DB/DW/DS), and `comment` — all optional except `line`.
+  JSON is `{ version: 2, code, symbols, map }` — see README.md for the full
+  schema; summary:
+  - `version` — integer, currently `2`. Bumped on breaking schema changes.
+  - `code` — array of per-statement entries. Fields (all optional except
+    `line`): `line`, `addr`, `length`, `bytes` (string[]), `chars`
+    (string[], 1:1 with bytes), `label`, `op`, `arg1`/`arg2` (typed operand
+    objects: `{ text, type, value? }` where `type` ∈ `reg | regpair | imm8
+| imm16 | addr16 | port8 | rst | name` and `value` is the i8080
+    encoding index for reg/regpair or the evaluated number for numeric
+    kinds), `data` (DB/DW = `{ kind, parts: [{ text, bytes, values, chars }] }`;
+    DS = `{ kind: "ds", size, fill? }`), `comment`.
   - `symbols` — object mapping `NAME` (uppercased) to 4-digit hex address,
     sorted by name.
   - `map` — `{ sections: [{ start, end, size, name? }], total }` with addresses
     as 4-digit hex and sizes in bytes.
+
+  Example (`MVI A, 42h` emits arg1 = `{text:"a",type:"reg",value:7}`, arg2 =
+  `{text:"42h",type:"imm8",value:66}`; `DB 'Hi', 0` emits `data.parts =
+[{text:"'Hi'",bytes:["48","69"],values:[72,105],chars:["H","i"]},
+{text:"0",bytes:["00"],values:[0],chars:["."]}]`.)
+
 - `-o <dir>` — output directory (created if needed)
 - `-v` — print version from package.json
 - `-h` — help
