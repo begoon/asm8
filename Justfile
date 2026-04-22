@@ -10,7 +10,7 @@ build-playground:
     bun run build:docs
 
 run-playground:
-    bunx serve docs
+    python3 -m http.server -d docs 3000
 
 publish: test
     npm version patch --no-git-tag-version

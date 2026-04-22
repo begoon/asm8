@@ -27,6 +27,9 @@ docs/                    browser playground (GitHub Pages served from here)
   index.html             playground shell
   style.css              theme vars + layout
   playground.ts          editor glue (bundled to playground.js via `just playground`)
+  conf.js                runtime-loaded per-deployment overrides (e.g.
+                         `window.asm8EmulatorUrl = "../"`); loaded by
+                         index.html before examples.js / playground.js
   examples.js            runtime-loaded manifest — sets `window.asm8Examples`,
                          loaded by index.html before playground.js; edit to change
                          the example dropdown in a deployment without rebuilding
@@ -183,6 +186,18 @@ module script) that assigns `window.asm8Examples = [{ name, filename }, ...]`.
 or reorder entries, ship a different list per deployment) and editing the
 `.asm` under `docs/examples/` both apply without rebuilding.
 
+**Per-deployment overrides** live in `docs/conf.js`, a plain `<script>`
+loaded before `examples.js` and the module bundle. It sets globals the
+bundle reads on startup — currently just `window.asm8EmulatorUrl` to
+point `run` at a same-origin emulator (see the run-path section below).
+Default `conf.js` ships with the override commented out; deployments
+edit it in place without rebuilding.
+
+```js
+// docs/conf.js — same-origin embed (e.g. svelte mirror at /asm/)
+window.asm8EmulatorUrl = "../";
+```
+
 The editor is multi-tab. State lives under two keys:
 
 - `asm8-playground:tabs` — JSON array of `{ filename, source }`
@@ -197,12 +212,27 @@ Conventions:
 - Each tab has a unique `filename`. Commits (blur/Enter) on the filename
   input validate uniqueness and revert on clash; live typing updates the
   tab label without gating.
+- Tabs that differ from any example render in green: `.tab.modified`
+  gets `color: var(--ok)` (and an `--ok` top border when also active).
+  Verbatim-example tabs (`.tab.example`) keep the default muted
+  styling. The check is the same as the close-without-confirm rule —
+  filename matches an `EXAMPLES` entry AND source is byte-identical to
+  the fetched example text; disambiguated names like `foo-2.asm` fail
+  the filename check and render as modified. The flag flips live on
+  every source keystroke and every filename edit. Example sources are
+  fetched asynchronously; until each resolves, tabs of that example
+  render as `.modified`, then re-render as `.example` once the fetch
+  lands.
 - Loading an example always creates a new tab (disambiguated with
   `foo-2.asm` if needed). Uploads do the same.
 - **Reset** replaces only the active tab with the `aloha` example
   (looked up by name in `EXAMPLES` — keep the name in sync if renamed).
-  **Close** prompts for confirm when the tab's source is non-empty;
-  closing the last tab clears it in place instead of leaving zero tabs.
+  **Close** prompts for confirm when the tab's source is non-empty,
+  unless the tab still matches an example verbatim (filename equals an
+  `EXAMPLES` entry's filename AND source is byte-identical to the
+  fetched example text — disambiguated names like `foo-2.asm` don't
+  match, so they still prompt). Closing the last tab clears it in place
+  instead of leaving zero tabs.
 - **download**: one `#download-btn` button + `<select id="download-format">`
   picks what gets written — `asm` (default, writes the current
   source), or one of `bin` / `rk` / `rkr` / `pki` / `gam` (writes
@@ -216,10 +246,10 @@ Conventions:
   byte. `.bin` is the raw payload.
 - **run** is wired to `.rk` regardless of the dropdown — the
   emulator's autoload handler only accepts that envelope.
-  `Ctrl/Cmd+R` triggers it. Target URL is `EMULATOR_URL`, defaulting
+  `Ctrl/Cmd+E` triggers it. Target URL is `EMULATOR_URL`, defaulting
   to `https://rk86.ru/beta/index.html`; a same-origin embed can
-  override via `window.asm8EmulatorUrl = "../"` in index.html
-  _before_ the `<script type="module" src="playground.js">` tag.
+  override via `window.asm8EmulatorUrl = "../"` in `docs/conf.js`
+  (loaded before the `<script type="module" src="playground.js">` tag).
   The run path autodetects origin:
   - **Same-origin** (e.g. the svelte mirror at `/asm/`): write
     `{ts, url: dataUrl}` JSON to `localStorage["asm8-handoff:<uuid>"]`
