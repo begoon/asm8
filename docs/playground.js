@@ -606,6 +606,10 @@ function splitStatements(line) {
   for (let i = 0;i + 2 < src.length; i++) {
     const c = src[i];
     if (inQ) {
+      if (c === "\\" && i + 1 < src.length) {
+        i++;
+        continue;
+      }
       if (c === qc)
         inQ = false;
       continue;
@@ -615,7 +619,7 @@ function splitStatements(line) {
       qc = c;
       continue;
     }
-    if (c !== " " || src[i + 1] !== "/" || src[i + 2] !== " ")
+    if (c !== " " || src[i + 1] !== "/" && src[i + 1] !== "\\" || src[i + 2] !== " ")
       continue;
     let j = i + 3;
     while (j < src.length && src[j] === " ")
@@ -670,12 +674,45 @@ function instrSize(m) {
     return 3;
   throw new Error(`unknown mnemonic: ${m}`);
 }
+var STRING_ESCAPES = {
+  "\\": 92,
+  '"': 34,
+  "'": 39,
+  n: 10,
+  r: 13,
+  t: 9,
+  "0": 0
+};
+function decodeString(text) {
+  const body = text.slice(1, -1);
+  const out = [];
+  for (let i = 0;i < body.length; i++) {
+    const c = body[i];
+    if (c === "\\") {
+      if (i + 1 >= body.length)
+        throw new Error("dangling '\\' in string");
+      const nxt = body[i + 1];
+      if (!(nxt in STRING_ESCAPES)) {
+        throw new Error(`unknown escape sequence '\\${nxt}'`);
+      }
+      out.push(STRING_ESCAPES[nxt]);
+      i++;
+    } else {
+      out.push(c.charCodeAt(0));
+    }
+  }
+  return out;
+}
 function stripComment(line) {
   let inQ = false;
   let qc = "";
   for (let i = 0;i < line.length; i++) {
     const c = line[i];
     if (inQ) {
+      if (c === "\\" && i + 1 < line.length) {
+        i++;
+        continue;
+      }
       if (c === qc)
         inQ = false;
     } else if (c === '"' || c === "'") {
@@ -691,9 +728,15 @@ function splitOperands(s) {
   let current = "";
   let inQ = false;
   let qc = "";
-  for (const c of s) {
+  for (let i = 0;i < s.length; i++) {
+    const c = s[i];
     if (inQ) {
       current += c;
+      if (c === "\\" && i + 1 < s.length) {
+        current += s[i + 1];
+        i++;
+        continue;
+      }
       if (c === qc)
         inQ = false;
     } else if (c === '"' || c === "'") {
@@ -767,6 +810,15 @@ function tokenizeExpr(expr) {
     let c = expr[i];
     if (/\s/.test(c)) {
       i++;
+      continue;
+    }
+    if (c === "'" && i + 3 < expr.length && expr[i + 1] === "\\" && expr[i + 3] === "'") {
+      const esc = expr[i + 2];
+      if (!(esc in STRING_ESCAPES)) {
+        throw new Error(`unknown escape sequence '\\${esc}'`);
+      }
+      tokens.push({ kind: "num", val: STRING_ESCAPES[esc] });
+      i += 4;
       continue;
     }
     if (c === "'" && i + 2 < expr.length && expr[i + 2] === "'") {
@@ -1031,9 +1083,9 @@ function encode(m, ops, symbols, pc = 0, lastLabel = "") {
 function dbBytes(operands, symbols, pc = 0, lastLabel = "") {
   const out = [];
   for (const op of operands) {
-    if (op.startsWith('"') && op.endsWith('"') || op.startsWith("'") && op.endsWith("'")) {
-      for (const ch of op.slice(1, -1))
-        out.push(ch.charCodeAt(0));
+    if (op.startsWith('"') && op.endsWith('"') && op.length >= 2 || op.startsWith("'") && op.endsWith("'") && op.length >= 2) {
+      for (const b of decodeString(op))
+        out.push(b);
     } else {
       out.push(evalExpr(op, symbols, pc, lastLabel) & 255);
     }
@@ -1422,7 +1474,7 @@ var DATA_DIRECTIVES = new Set(["DB", "DW", "DS"]);
 if (false) {}
 
 // docs/build-info.ts
-var BUILD_TIME = "2026-04-22 10:10:04";
+var BUILD_TIME = "2026-05-16 09:58:56";
 
 // docs/playground.ts
 var fetchExample = (f) => fetch(`examples/${f}`).then((r) => r.text());

@@ -94,6 +94,18 @@ describe("slash-joined statements", () => {
     expect((caught as AsmError).source).toBe("push h / mvi a, UNDEFINED");
   });
 
+  test("backslash separator works the same as slash", () => {
+    expect(bytes("push h \\ push b \\ push d")).toEqual([0xe5, 0xc5, 0xd5]);
+  });
+
+  test("mixed slash and backslash separators on one line", () => {
+    expect(bytes("nop / hlt \\ nop")).toEqual([0x00, 0x76, 0x00]);
+  });
+
+  test("backslash inside string literal not split", () => {
+    expect(bytes(`db "a \\\\ b"`)).toEqual([0x61, 0x20, 0x5c, 0x20, 0x62]);
+  });
+
   test("listing renders source on first statement only", () => {
     const src = `org 0\npush h / push b / push d\nend\n`;
     const out = listing(src);

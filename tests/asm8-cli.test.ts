@@ -403,3 +403,50 @@ describe("CLI: error reporting and overlap", () => {
     expect(r.stderr).toContain("sections overlap");
   });
 });
+
+describe("CLI: include directive", () => {
+  test("include resolves relative to the including file", () => {
+    write("inc-main.asm", `org 0\nmvi a, 1\ninclude "inc-sub.asm"\nend\n`);
+    write("inc-sub.asm", "mvi b, 2\nhlt\n");
+    const main = join(TMP, "inc-main.asm");
+    const outDir = join(TMP, "out-inc");
+    const r = run([main, "-o", outDir]);
+    expect(r.code).toBe(0);
+    const bin = readFileSync(join(outDir, "inc-main.bin"));
+    expect(Array.from(bin)).toEqual([0x3e, 0x01, 0x06, 0x02, 0x76]);
+  });
+
+  test("nested include resolves relative to the included file's directory", () => {
+    mkdirSync(join(TMP, "sub"), { recursive: true });
+    write("nest-main.asm", `org 0\nmvi a, 1\ninclude "sub/level1.asm"\nend\n`);
+    writeFileSync(
+      join(TMP, "sub", "level1.asm"),
+      `mvi b, 2\ninclude "level2.asm"\n`,
+    );
+    writeFileSync(join(TMP, "sub", "level2.asm"), `hlt\n`);
+    const main = join(TMP, "nest-main.asm");
+    const outDir = join(TMP, "out-nest");
+    const r = run([main, "-o", outDir]);
+    expect(r.code).toBe(0);
+    const bin = readFileSync(join(outDir, "nest-main.bin"));
+    expect(Array.from(bin)).toEqual([0x3e, 0x01, 0x06, 0x02, 0x76]);
+  });
+
+  test("error inside included file reports that file's path and line", () => {
+    write("err-main.asm", `org 0\ninclude "err-sub.asm"\nend\n`);
+    const sub = write("err-sub.asm", "nop\nmvi a, BOGUS\nhlt\n");
+    const main = join(TMP, "err-main.asm");
+    const r = run([main, "-o", join(TMP, "out-err")]);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain(`${sub}:2:`);
+    expect(r.stderr).toContain("unknown symbol: BOGUS");
+  });
+
+  test("missing include file produces a clear error", () => {
+    write("miss.asm", `org 0\ninclude "no-such.inc"\nend\n`);
+    const main = join(TMP, "miss.asm");
+    const r = run([main, "-o", join(TMP, "out-miss")]);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("cannot read include");
+  });
+});

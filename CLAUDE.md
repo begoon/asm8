@@ -121,6 +121,37 @@ names starting with `@_if_`. Keep an entire `.if`/`.endif` block inside
 a single non-local scope — introducing a new top-level label between
 the jump and its target will break label resolution.
 
+### File inclusion: `include` / `.include`
+
+`include "path.asm"` (single or double quotes) inlines another file at
+the include site, expanded during `preprocess()` so the rest of the
+pipeline never sees that an include happened. Paths are resolved
+relative to the **including** file's directory; nested includes follow
+the same rule. Self- and circular-include chains are detected by an
+include-stack of resolved absolute paths and surfaced as
+`circular include: A -> B -> A`.
+
+`PPLine` carries an optional `file` field, and `AsmError` does too.
+Every catch-and-rethrow site in `preprocess`, pass 1, pass 2,
+`collectSymbols`, `lineInfo`, and `lineJson` passes the current PPLine's
+`file` into the new `AsmError`. `printAsmError` prefers `e.file` over
+the top-level filename so an error in `bar.inc` line 2 reports
+`bar.inc:2:1` instead of `main.asm:N`.
+
+File I/O is injected via `AsmOptions.readInclude`, so the assembler core
+stays pure. The CLI provides a `readFileSync`-based reader; the browser
+playground passes nothing, which makes `include` throw "include is not
+supported in this environment". The path resolution lives entirely in
+the reader (CLI joins on `dirname(fromFile)`), not in `preprocess`.
+
+```asm
+        org 0
+        include "defs.inc"   ; defines FOO
+        mvi a, FOO
+        hlt
+        end
+```
+
 ### Procedures: `.proc` / `.endp` / `.return`
 
 A procedure auto-saves and restores register pairs around its body.

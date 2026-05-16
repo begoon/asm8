@@ -231,11 +231,23 @@ Each `org` directive creates a new section. The `section name` directive names i
   iteratively re-evaluated to a fixpoint after the first pass)
 - Case-insensitive mnemonics, registers, and symbols
 - All documented Intel 8080 instructions
-- Directives: `org`, `section`, `db`, `dw`, `ds`, `equ`, `end` — each may also be written with a leading dot (`.org`, `.db`, etc.) for compatibility with other assemblers
+- Directives: `org`, `section`, `db`, `dw`, `ds`, `equ`, `end`, `include`, `if` / `else` / `endif`, `proc` / `endp` / `return` — each may also be written with a leading dot (`.org`, `.db`, etc.) for compatibility with other assemblers
+- `include "path.asm"` — inline another source file at this point. The path is resolved relative to the **including** file's directory; nested includes follow the same rule. Self- and circular-include chains are rejected. Errors inside an included file report that file's path and line. CLI-only — calling `asm(source)` from the browser playground (no filesystem) without supplying an `AsmOptions.readInclude` makes `include` throw "include is not supported in this environment".
+
+  ```asm
+  ; main.asm
+        org 0
+        include "defs.inc"   ; defines FOO
+        mvi a, FOO
+        hlt
+        end
+  ```
+
 - `ds N` reserves `N` bytes filled with 0; `ds N (F)` reserves `N` bytes filled with byte value `F`
 - Number formats: decimal (`255`), hex with `h` suffix (`0FFh`)
 - Character literals: `'A'` (usable anywhere a byte value is expected)
 - Strings in `db`: `db "hello"` or `db 'hello'`
+- Escape sequences in strings and character literals: `\\`, `\"`, `\'`, `\n` (0Ah), `\r` (0Dh), `\t` (09h), `\0` (00h). Example: `db "line\r\n", '\0'`. Unknown escapes like `\x` are an error.
 - Expressions: `+`, `-`, `*`, `/`, `%`, `|`, `&`, `^`, `~`, `<<`, `>>`, `()` with C precedence
 - `LOW(expr)` / `HIGH(expr)` — extract low or high byte of a 16-bit value
 - `$` — current address (at the start of the current instruction or directive)
@@ -255,14 +267,63 @@ Each `org` directive creates a new section. The `section name` directive names i
             ret
 ```
 
-- Multiple statements per line joined with `/` (spaces required on both sides), up to 10 per line:
+- Multiple statements per line joined with `/` or `\` (spaces required on both sides), up to 10 per line:
 
 ```asm
   push h / push b / push d
-  pop  d / pop  b / pop  h
+  pop  d \ pop  b \ pop  h
 ```
 
-To disambiguate from division, the split only fires when a valid instruction name (or directive, optionally dotted) follows the `/`. So `mvi a, 10 / 2` is still treated as division (`10 / 2 = 5`).
+The two separators are interchangeable and can be mixed on the same line. To disambiguate from division, the split only fires when a valid instruction name (or directive, optionally dotted) follows the separator. So `mvi a, 10 / 2` is still treated as division (`10 / 2 = 5`).
+
+### Conditional assembly: `.if` / `.else` / `.endif`
+
+A flag-driven preprocessor expands these into i8080 conditional jumps. `.if <flag>` skips the body when `<flag>` is **false**. Supported flags: `Z NZ C NC PO PE P M`, plus aliases `==` (→ `Z`) and `<>` (→ `NZ`). Blocks nest. The leading dot is optional — `if` / `else` / `endif` work the same.
+
+```asm
+; if A == 11h: mov a, b
+        cpi 11h
+        .if ==
+          mov a, b
+        .endif
+
+; if A >= 10 (unsigned): mov a, b else mov a, c
+        cpi 10
+        .if NC
+          mov a, b
+        .else
+          mov a, c
+        .endif
+```
+
+Each `.if` reserves label names `@_if_<N>_else` / `@_if_<N>_exit` under the enclosing non-local label, so avoid label names starting with `@_if_`. Keep an entire `.if`/`.endif` block inside a single non-local scope — introducing a new top-level label between the jump and its target will break label resolution.
+
+### Procedures: `.proc` / `.endp` / `.return`
+
+A procedure auto-saves and restores register pairs around its body. Syntax: `<name> .proc [reg, reg, ...]` where each register is one of `PSW B D H` (the four pushable pairs); separators may be commas or whitespace. The preprocessor emits the label, pushes in listed order at entry, and pops in reverse order followed by `RET` at `.endp`. Procedures cannot nest. The leading dot is optional — `proc` / `endp` / `return` work the same.
+
+`.return` compiles to a jump to a shared exit block at `.endp` that does the reverse pops and `RET`. As a special case, when `.proc` has no register list, `.return` degrades to a bare `RET`. A plain `ret` (or conditional `rz`/`rnz`/…) inside a `.proc` body skips the pops and corrupts the stack — use `.return` for early exit.
+
+```asm
+; save PSW and HL, do work, auto-restore + RET at .endp
+abc     .proc psw, h
+        lxi h, buf
+        mov a, m
+        .endp
+
+; early exit with .return — length in B on exit
+strlen  .proc b, h
+        mvi b, 0
+loop:   mov a, m
+        cpi 0
+        .if Z
+          .return
+        .endif
+        inr b
+        inx h
+        jmp loop
+        .endp
+```
 
 ## Tests
 
