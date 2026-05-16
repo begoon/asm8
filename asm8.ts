@@ -1054,10 +1054,10 @@ function countDb(operands: string[]): number {
   let n = 0;
   for (const op of operands) {
     if (
-      (op.startsWith('"') && op.endsWith('"')) ||
-      (op.startsWith("'") && op.endsWith("'"))
+      (op.startsWith('"') && op.endsWith('"') && op.length >= 2) ||
+      (op.startsWith("'") && op.endsWith("'") && op.length >= 2)
     )
-      n += op.length - 2;
+      n += decodeString(op).length;
     else n++;
   }
   return n;
@@ -1102,6 +1102,7 @@ export function asm(source: string, opts?: AsmOptions): Section[] {
             );
             continue;
           }
+          ensureSymbolFree(symbols, pending, labelName, orig, line, file);
           symbols.set(labelName.toUpperCase(), pc);
         }
         if (!parts.mnemonic) continue;
@@ -1252,6 +1253,29 @@ function isUnknownSymbolErr(e: unknown): e is Error {
   return e instanceof Error && /^unknown symbol:/.test(e.message);
 }
 
+function ensureSymbolFree(
+  symbols: Map<string, number>,
+  pending: PendingEqu[],
+  name: string,
+  orig: number,
+  line: string,
+  file?: string,
+): void {
+  const upper = name.toUpperCase();
+  if (
+    symbols.has(upper) ||
+    pending.some((p) => p.name.toUpperCase() === upper)
+  ) {
+    throw new AsmError(
+      `duplicate symbol: ${name}`,
+      orig,
+      line,
+      firstNonSpaceCol(line),
+      file,
+    );
+  }
+}
+
 function tryDefineEqu(
   symbols: Map<string, number>,
   pending: PendingEqu[],
@@ -1263,6 +1287,7 @@ function tryDefineEqu(
   line: string,
   file?: string,
 ): void {
+  ensureSymbolFree(symbols, pending, name, orig, line, file);
   try {
     symbols.set(name.toUpperCase(), evalExpr(expr, symbols, pc, lastLabel));
   } catch (e) {
@@ -1358,6 +1383,7 @@ function collectSymbols(pp: PPLine[]): Map<string, number> {
             );
             continue;
           }
+          ensureSymbolFree(symbols, pending, labelName, orig, line, file);
           symbols.set(labelName.toUpperCase(), pc);
         }
         if (!parts.mnemonic) continue;

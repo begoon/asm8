@@ -64,4 +64,17 @@ describe("string escape sequences", () => {
     expect(bytes(`db '\\\\'`)).toEqual([0x5c]);
     expect(bytes(`db '\\''`)).toEqual([0x27]);
   });
+
+  test("pass-1 sizing of db strings matches pass-2 decoded byte count", () => {
+    // Regression: countDb() used raw `op.length - 2` (counting `\\` as 2 bytes)
+    // while pass 2 went through decodeString() (1 byte), so every label after
+    // an escape-containing db was off by N. Here the string `"\\-/|"` decodes
+    // to 4 bytes (\, -, /, |), so the label after it must land at +4, not +5.
+    const s = asm(
+      `org 0\n` + `db "\\\\-/|"\n` + `target: nop\n` + `db LOW(target)\n`,
+    );
+    expect(s).toHaveLength(1);
+    // 4 bytes from the string, then nop (1 byte), then a db with low(target).
+    expect(s[0].data).toEqual([0x5c, 0x2d, 0x2f, 0x7c, 0x00, 0x04]);
+  });
 });

@@ -1,5 +1,74 @@
 # Changelog
 
+## 1.0.28 — 2026-05-16
+
+- Fix off-by-one for labels that follow a `db` string containing an
+  escape sequence. Pass 1's `countDb()` was using the raw character
+  count (`op.length - 2`), while pass 2 emits decoded bytes through
+  `decodeString()`. So `"\\-/|"` counted as 5 in pass 1 but 4 in pass
+  2, shifting every later label by one. Both passes now agree.
+
+  ```asm
+        db "\\-/|"         ; 4 bytes (\, -, /, |) in both passes
+  target: nop              ; lands at +4, not +5
+  ```
+
+- Detect duplicate symbols. Defining the same label or `equ` name
+  twice (in any combination, case-insensitive) now produces a clear
+  error at the offending line instead of silently rebinding to the
+  later definition. Forward-referenced equs are caught while still
+  pending; local labels are checked per scope, so `foo@loop` and
+  `bar@loop` remain distinct.
+
+  ```text
+  $ bun run asm8.ts dup.asm
+  dup.asm:3:1: error: duplicate symbol: foo
+    foo:    hlt
+    ^
+  ```
+
+## 1.0.27 — 2026-05-16
+
+- Add `include` / `.include` directive. Inlines another source file at
+  the directive site; paths resolve relative to the **including**
+  file's directory (nested includes follow the same rule). Self- and
+  circular-include chains are detected and rejected. Errors inside an
+  included file report that file's path and line.
+
+  ```asm
+        org 0
+        include "defs.inc"   ; defines FOO
+        mvi a, FOO
+        hlt
+        end
+  ```
+
+  File I/O is injected via the new `AsmOptions.readInclude`, so the
+  assembler core stays pure. The CLI wires `readFileSync`; the
+  browser playground passes nothing, so an `include` there throws
+  "include is not supported in this environment".
+
+- Support C-style escape sequences in string and char literals:
+  `\\`, `\"`, `\'`, `\n` (0Ah), `\r` (0Dh), `\t` (09h), `\0` (00h).
+  Unknown escapes (like `\x`) are an error.
+
+  ```asm
+        db "line\r\n", '\0'
+  ```
+
+- Accept `\` as an alternative to `/` for joining multiple statements
+  on one line. The two separators are interchangeable and may mix on
+  the same line.
+
+  ```asm
+        push h / push b / push d
+        pop  d \ pop  b \ pop  h
+  ```
+
+- README now documents the existing `.if` / `.else` / `.endif` and
+  `.proc` / `.endp` / `.return` constructs that were previously only
+  in CLAUDE.md.
+
 ## 1.0.24 — 2026-04-21
 
 - Add `--format <ext>` CLI option for the single-file output case.
