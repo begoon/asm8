@@ -933,6 +933,53 @@ function evalExpr(
   return result;
 }
 
+function expectOps(m: string, ops: string[], n: number): void {
+  if (ops.length !== n) {
+    throw new Error(
+      `${m} takes ${n} operand${n === 1 ? "" : "s"}, got ${ops.length}`,
+    );
+  }
+}
+
+function reg8(m: string, op: string): number {
+  const r = REG8[op.toUpperCase()];
+  if (r === undefined) {
+    throw new Error(
+      `${m}: invalid register '${op}' (expected B C D E H L M A)`,
+    );
+  }
+  return r;
+}
+
+function regPair(
+  m: string,
+  op: string,
+  allowed: Record<string, number>,
+): number {
+  const names = Object.keys(allowed).join(" ");
+  const r = allowed[op.toUpperCase()];
+  if (r === undefined) {
+    throw new Error(`${m}: invalid register pair '${op}' (expected ${names})`);
+  }
+  return r;
+}
+
+function imm8(m: string, v: number): number {
+  if (v < -128 || v > 0xff) {
+    throw new Error(`${m}: 8-bit value out of range: ${v}`);
+  }
+  return v & 0xff;
+}
+
+function imm16(m: string, v: number): [number, number] {
+  if (v < -0x8000 || v > 0xffff) {
+    throw new Error(`${m}: 16-bit value out of range: ${v}`);
+  }
+  return [v & 0xff, (v >> 8) & 0xff];
+}
+
+const LDAX_STAX_PAIRS: Record<string, number> = { B: 0, D: 1 };
+
 function encode(
   m: string,
   ops: string[],
@@ -940,46 +987,93 @@ function encode(
   pc = 0,
   lastLabel = "",
 ): number[] {
-  if (m in IMPLIED) return [IMPLIED[m]];
-  if (m in ALU_REG) return [ALU_REG[m] | REG8[ops[0].toUpperCase()]];
-  if (m in ALU_IMM)
-    return [ALU_IMM[m], evalExpr(ops[0], symbols, pc, lastLabel) & 0xff];
+  if (m in IMPLIED) {
+    expectOps(m, ops, 0);
+    return [IMPLIED[m]];
+  }
+  if (m in ALU_REG) {
+    expectOps(m, ops, 1);
+    return [ALU_REG[m] | reg8(m, ops[0])];
+  }
+  if (m in ALU_IMM) {
+    expectOps(m, ops, 1);
+    return [ALU_IMM[m], imm8(m, evalExpr(ops[0], symbols, pc, lastLabel))];
+  }
   if (m in ADDR16) {
-    const v = evalExpr(ops[0], symbols, pc, lastLabel);
-    return [ADDR16[m], v & 0xff, (v >> 8) & 0xff];
+    expectOps(m, ops, 1);
+    const [lo, hi] = imm16(m, evalExpr(ops[0], symbols, pc, lastLabel));
+    return [ADDR16[m], lo, hi];
   }
 
-  if (m === "MOV")
-    return [
-      0x40 | (REG8[ops[0].toUpperCase()] << 3) | REG8[ops[1].toUpperCase()],
-    ];
+  if (m === "MOV") {
+    expectOps(m, ops, 2);
+    const dst = reg8(m, ops[0]);
+    const src = reg8(m, ops[1]);
+    if (dst === 6 && src === 6) {
+      throw new Error("MOV M,M is not a valid instruction (encodes to HLT)");
+    }
+    return [0x40 | (dst << 3) | src];
+  }
   if (m === "MVI") {
-    const v = evalExpr(ops[1], symbols, pc, lastLabel);
-    return [0x06 | (REG8[ops[0].toUpperCase()] << 3), v & 0xff];
-  }
-  if (m === "INR") return [0x04 | (REG8[ops[0].toUpperCase()] << 3)];
-  if (m === "DCR") return [0x05 | (REG8[ops[0].toUpperCase()] << 3)];
-  if (m === "LXI") {
-    const v = evalExpr(ops[1], symbols, pc, lastLabel);
+    expectOps(m, ops, 2);
     return [
-      0x01 | (REG_PAIR[ops[0].toUpperCase()] << 4),
-      v & 0xff,
-      (v >> 8) & 0xff,
+      0x06 | (reg8(m, ops[0]) << 3),
+      imm8(m, evalExpr(ops[1], symbols, pc, lastLabel)),
     ];
   }
-  if (m === "DAD") return [0x09 | (REG_PAIR[ops[0].toUpperCase()] << 4)];
-  if (m === "INX") return [0x03 | (REG_PAIR[ops[0].toUpperCase()] << 4)];
-  if (m === "DCX") return [0x0b | (REG_PAIR[ops[0].toUpperCase()] << 4)];
-  if (m === "PUSH") return [0xc5 | (REG_PAIR_PUSH[ops[0].toUpperCase()] << 4)];
-  if (m === "POP") return [0xc1 | (REG_PAIR_PUSH[ops[0].toUpperCase()] << 4)];
-  if (m === "LDAX") return [0x0a | (REG_PAIR[ops[0].toUpperCase()] << 4)];
-  if (m === "STAX") return [0x02 | (REG_PAIR[ops[0].toUpperCase()] << 4)];
-  if (m === "IN")
-    return [0xdb, evalExpr(ops[0], symbols, pc, lastLabel) & 0xff];
-  if (m === "OUT")
-    return [0xd3, evalExpr(ops[0], symbols, pc, lastLabel) & 0xff];
+  if (m === "INR") {
+    expectOps(m, ops, 1);
+    return [0x04 | (reg8(m, ops[0]) << 3)];
+  }
+  if (m === "DCR") {
+    expectOps(m, ops, 1);
+    return [0x05 | (reg8(m, ops[0]) << 3)];
+  }
+  if (m === "LXI") {
+    expectOps(m, ops, 2);
+    const [lo, hi] = imm16(m, evalExpr(ops[1], symbols, pc, lastLabel));
+    return [0x01 | (regPair(m, ops[0], REG_PAIR) << 4), lo, hi];
+  }
+  if (m === "DAD") {
+    expectOps(m, ops, 1);
+    return [0x09 | (regPair(m, ops[0], REG_PAIR) << 4)];
+  }
+  if (m === "INX") {
+    expectOps(m, ops, 1);
+    return [0x03 | (regPair(m, ops[0], REG_PAIR) << 4)];
+  }
+  if (m === "DCX") {
+    expectOps(m, ops, 1);
+    return [0x0b | (regPair(m, ops[0], REG_PAIR) << 4)];
+  }
+  if (m === "PUSH") {
+    expectOps(m, ops, 1);
+    return [0xc5 | (regPair(m, ops[0], REG_PAIR_PUSH) << 4)];
+  }
+  if (m === "POP") {
+    expectOps(m, ops, 1);
+    return [0xc1 | (regPair(m, ops[0], REG_PAIR_PUSH) << 4)];
+  }
+  if (m === "LDAX") {
+    expectOps(m, ops, 1);
+    return [0x0a | (regPair(m, ops[0], LDAX_STAX_PAIRS) << 4)];
+  }
+  if (m === "STAX") {
+    expectOps(m, ops, 1);
+    return [0x02 | (regPair(m, ops[0], LDAX_STAX_PAIRS) << 4)];
+  }
+  if (m === "IN") {
+    expectOps(m, ops, 1);
+    return [0xdb, imm8(m, evalExpr(ops[0], symbols, pc, lastLabel))];
+  }
+  if (m === "OUT") {
+    expectOps(m, ops, 1);
+    return [0xd3, imm8(m, evalExpr(ops[0], symbols, pc, lastLabel))];
+  }
   if (m === "RST") {
+    expectOps(m, ops, 1);
     const n = evalExpr(ops[0], symbols, pc, lastLabel);
+    if (n < 0 || n > 7) throw new Error(`RST: vector out of range 0..7: ${n}`);
     return [0xc7 | (n << 3)];
   }
 

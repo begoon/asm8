@@ -94,9 +94,7 @@ describe(".proc / .endp / .return", () => {
     const s = asm(src);
     // foo: CPI 0 (FE 00 @0), JNZ else (C2 06 00 @2), RET (C9 @5),
     //   else: MOV A,B (78 @6), RET (C9 @7)
-    expect(s[0].data).toEqual([
-      0xfe, 0x00, 0xc2, 0x06, 0x00, 0xc9, 0x78, 0xc9,
-    ]);
+    expect(s[0].data).toEqual([0xfe, 0x00, 0xc2, 0x06, 0x00, 0xc9, 0x78, 0xc9]);
   });
 
   test("local labels inside .proc scope to the proc name", () => {
