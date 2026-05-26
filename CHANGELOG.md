@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.0.30 — 2026-05-26
+
+- Validate instruction operands instead of silently encoding garbage.
+  The encoder used `REG8[...]` / `REG_PAIR[...]` lookups directly, so
+  unknown register names returned `undefined` and `undefined | opcode`
+  coerced to the opcode itself — `mov pussy, dick` silently encoded as
+  `MOV B,B`, `ldax a` as `LDAX B`, `mov m, m` as `HLT`. Immediates were
+  masked with `& 0xff` with no range check, and operand counts weren't
+  enforced (`nop dick` assembled as `NOP`). Unknown registers, wrong
+  operand counts, out-of-range immediates (8/16-bit), `LDAX`/`STAX`
+  with anything other than `B`/`D`, `MOV M,M`, and `RST` outside `0..7`
+  now all produce errors at the offending line.
+
+  ```text
+  $ bun run asm8.ts bad.asm
+  bad.asm:2:1: error: MOV: invalid register 'pussy' (expected B C D E H L M A)
+    mov pussy, dick
+    ^
+  bad.asm:3:1: error: MVI: 8-bit value out of range: 333333
+    mvi a, 333333
+    ^
+  bad.asm:4:1: error: RST: vector out of range 0..7: 11111111
+    rst 11111111
+    ^
+  ```
+
 ## 1.0.28 — 2026-05-16
 
 - Fix off-by-one for labels that follow a `db` string containing an
