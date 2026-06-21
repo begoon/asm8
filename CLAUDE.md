@@ -255,7 +255,7 @@ Conventions:
   render as `.modified`, then re-render as `.example` once the fetch
   lands.
 - Loading an example always creates a new tab (disambiguated with
-  `foo-2.asm` if needed). Uploads do the same.
+  `foo-2.asm` if needed).
 - **Reset** replaces only the active tab with the `aloha` example
   (looked up by name in `EXAMPLES` — keep the name in sync if renamed).
   **Close** prompts for confirm when the tab's source is non-empty,
@@ -291,6 +291,14 @@ Conventions:
   - **Cross-origin** (standalone playground → rk86.ru): fall back to
     `EMULATOR_URL?run=<dataUrl>`. Works up to the browser's URL
     length limit.
+- **upload** (`#upload-asm`) shares the exact same handoff path as
+  **run** via `sendToEmulator(mode)`, but tells the emulator to load
+  the assembled `.rk` into memory _without_ running it. The mode is
+  carried by the query-param name: same-origin uses `?loadoff=<uuid>`
+  (vs `?handoff=`), cross-origin uses `?load=<dataUrl>` (vs `?run=`).
+  Like **run**, it's disabled until assembly succeeds. (The old
+  load-an-`.asm`-from-disk behavior and its hidden `#file-input` were
+  removed when this button was repurposed.)
 
 The in-page confirm modal replaces `window.confirm()` because Chrome
 suppresses native dialogs when the originating tab isn't foregrounded.

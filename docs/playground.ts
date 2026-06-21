@@ -120,7 +120,6 @@ const downloadFormatSel = document.getElementById(
 const runBinBtn = document.getElementById("run-bin") as HTMLButtonElement;
 const resetBtn = document.getElementById("reset") as HTMLButtonElement;
 const themeBtn = document.getElementById("theme") as HTMLButtonElement;
-const fileInput = document.getElementById("file-input") as HTMLInputElement;
 const filenameInput = document.getElementById("filename") as HTMLInputElement;
 const tabsEl = document.getElementById("tabs") as HTMLDivElement;
 
@@ -611,10 +610,12 @@ function compile() {
     errorEl.textContent = "";
     updateDownloadEnabled();
     runBinBtn.disabled = lastSections.length === 0;
+    uploadBtn.disabled = lastSections.length === 0;
   } catch (e) {
     lastSections = null;
     updateDownloadEnabled();
     runBinBtn.disabled = true;
+    uploadBtn.disabled = true;
     if (e instanceof AsmError) {
       errLine = e.line;
       errorEl.classList.add("visible");
@@ -926,7 +927,13 @@ function newHandoffId(): string {
   return `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
 }
 
-runBinBtn.addEventListener("click", () => {
+// Hand the assembled .rk off to the emulator. `mode` selects what the
+// emulator does on arrival: "run" boots it, "load" only loads it into
+// memory. For same-origin embeds the data-URL is stashed in
+// localStorage (see sweepStaleHandoffs) and the mode is carried as the
+// query param name (?handoff= / ?loadoff=); cross-origin passes the
+// data-URL directly as ?run= / ?load=.
+function sendToEmulator(mode: "run" | "load") {
   const rk = buildOutput("rk");
   if (!rk) return;
   const target = new URL(EMULATOR_URL, location.href);
@@ -946,14 +953,15 @@ runBinBtn.addEventListener("click", () => {
       );
       return;
     }
-    target.searchParams.set("handoff", id);
+    target.searchParams.set(mode === "run" ? "handoff" : "loadoff", id);
   } else {
-    target.searchParams.set("run", dataUrl);
+    target.searchParams.set(mode, dataUrl);
   }
   window.open(target.toString(), "_blank", "noopener");
-});
+}
 
-uploadBtn.addEventListener("click", () => fileInput.click());
+runBinBtn.addEventListener("click", () => sendToEmulator("run"));
+uploadBtn.addEventListener("click", () => sendToEmulator("load"));
 
 resetBtn.addEventListener("click", async () => {
   const ok = await askConfirm(
@@ -970,24 +978,6 @@ resetBtn.addEventListener("click", async () => {
   lastGoodName = uniqueName;
   select.value = def.name;
   source.scrollTop = 0;
-  saveTabs();
-  renderTabs();
-  onChange();
-  source.focus();
-});
-
-fileInput.addEventListener("change", async () => {
-  const f = fileInput.files?.[0];
-  if (!f) return;
-  const text = await f.text();
-  const uniqueName = uniqueFilename(f.name);
-  tabs.push({ filename: uniqueName, source: text });
-  active = tabs.length - 1;
-  source.value = text;
-  filenameInput.value = uniqueName;
-  lastGoodName = uniqueName;
-  source.scrollTop = 0;
-  fileInput.value = "";
   saveTabs();
   renderTabs();
   onChange();
