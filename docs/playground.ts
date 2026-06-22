@@ -110,7 +110,9 @@ const confirmOk = document.getElementById("confirm-ok") as HTMLButtonElement;
 const confirmCancel = document.getElementById(
   "confirm-cancel",
 ) as HTMLButtonElement;
+const loadEmuBtn = document.getElementById("load-emu") as HTMLButtonElement;
 const uploadBtn = document.getElementById("upload-asm") as HTMLButtonElement;
+const fileInput = document.getElementById("file-input") as HTMLInputElement;
 const downloadBtn = document.getElementById(
   "download-btn",
 ) as HTMLButtonElement;
@@ -610,12 +612,12 @@ function compile() {
     errorEl.textContent = "";
     updateDownloadEnabled();
     runBinBtn.disabled = lastSections.length === 0;
-    uploadBtn.disabled = lastSections.length === 0;
+    loadEmuBtn.disabled = lastSections.length === 0;
   } catch (e) {
     lastSections = null;
     updateDownloadEnabled();
     runBinBtn.disabled = true;
-    uploadBtn.disabled = true;
+    loadEmuBtn.disabled = true;
     if (e instanceof AsmError) {
       errLine = e.line;
       errorEl.classList.add("visible");
@@ -961,7 +963,28 @@ function sendToEmulator(mode: "run" | "load") {
 }
 
 runBinBtn.addEventListener("click", () => sendToEmulator("run"));
-uploadBtn.addEventListener("click", () => sendToEmulator("load"));
+loadEmuBtn.addEventListener("click", () => sendToEmulator("load"));
+
+// Upload a local .asm from disk into a new tab.
+uploadBtn.addEventListener("click", () => fileInput.click());
+
+fileInput.addEventListener("change", async () => {
+  const f = fileInput.files?.[0];
+  if (!f) return;
+  const text = await f.text();
+  const uniqueName = uniqueFilename(f.name);
+  tabs.push({ filename: uniqueName, source: text });
+  active = tabs.length - 1;
+  source.value = text;
+  filenameInput.value = uniqueName;
+  lastGoodName = uniqueName;
+  source.scrollTop = 0;
+  fileInput.value = "";
+  saveTabs();
+  renderTabs();
+  onChange();
+  source.focus();
+});
 
 resetBtn.addEventListener("click", async () => {
   const ok = await askConfirm(

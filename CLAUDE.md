@@ -291,14 +291,17 @@ Conventions:
   - **Cross-origin** (standalone playground → rk86.ru): fall back to
     `EMULATOR_URL?run=<dataUrl>`. Works up to the browser's URL
     length limit.
-- **upload** (`#upload-asm`) shares the exact same handoff path as
-  **run** via `sendToEmulator(mode)`, but tells the emulator to load
-  the assembled `.rk` into memory _without_ running it. The mode is
-  carried by the query-param name: same-origin uses `?loadoff=<uuid>`
-  (vs `?handoff=`), cross-origin uses `?load=<dataUrl>` (vs `?run=`).
-  Like **run**, it's disabled until assembly succeeds. (The old
-  load-an-`.asm`-from-disk behavior and its hidden `#file-input` were
-  removed when this button was repurposed.)
+- **load** (`#load-emu`) shares the exact same handoff path as **run**
+  via `sendToEmulator(mode)`, but tells the emulator to load the
+  assembled `.rk` into memory _without_ running it. The mode is carried
+  by the query-param name: same-origin uses `?loadoff=<uuid>` (vs
+  `?handoff=`), cross-origin uses `?load=<dataUrl>` (vs `?run=`). Like
+  **run**, it's disabled until assembly succeeds.
+- **upload** (`#upload-asm`) loads a local `.asm` file from disk into a
+  new tab. It clicks a hidden `<input type="file" id="file-input">`;
+  the change handler reads the file text, pushes a new tab (filename
+  disambiguated via `uniqueFilename`), makes it active, and triggers a
+  recompile. Always enabled — it doesn't depend on assembly state.
 
 The in-page confirm modal replaces `window.confirm()` because Chrome
 suppresses native dialogs when the originating tab isn't foregrounded.
