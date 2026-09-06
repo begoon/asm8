@@ -897,7 +897,7 @@ downloadBtn.addEventListener("click", () => {
 // The target emulator URL defaults to rk86.ru; a same-origin embed
 // can override it via `window.asm8EmulatorUrl = "../"` in index.html
 // (before the playground.js <script type="module"> tag).
-const EMULATOR_URL_DEFAULT = "https://rk86.ru/beta/index.html";
+const EMULATOR_URL_DEFAULT = "https://rk86.ru/";
 const EMULATOR_URL =
   (window as unknown as { asm8EmulatorUrl?: string }).asm8EmulatorUrl ??
   EMULATOR_URL_DEFAULT;
