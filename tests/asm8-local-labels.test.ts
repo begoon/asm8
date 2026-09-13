@@ -294,8 +294,8 @@ describe("$ current address", () => {
   test("$ in db", () => {
     const src = ["  org 100h", "  db $, $, $", "  end"].join("\n");
     const sections = asm(src);
-    // each $ at the start of db directive = 0x100, so low byte = 0x00
-    expect(sections[0].data).toEqual([0x00, 0x00, 0x00]);
+    // $ is the address of each item: 0x100, 0x101, 0x102
+    expect(sections[0].data).toEqual([0x00, 0x01, 0x02]);
   });
 
   test("$ in dw yields current address", () => {

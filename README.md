@@ -250,7 +250,7 @@ Each `org` directive creates a new section. The `section name` directive names i
 - Escape sequences in strings and character literals: `\\`, `\"`, `\'`, `\n` (0Ah), `\r` (0Dh), `\t` (09h), `\0` (00h). Example: `db "line\r\n", '\0'`. Unknown escapes like `\x` are an error.
 - Expressions: `+`, `-`, `*`, `/`, `%`, `|`, `&`, `^`, `~`, `<<`, `>>`, `()` with C precedence
 - `LOW(expr)` / `HIGH(expr)` — extract low or high byte of a 16-bit value
-- `$` — current address (at the start of the current instruction or directive)
+- `$` — current address. In an instruction it is the address of the instruction; inside a `db` / `dw` operand list it is the address of the current item, so `dw 1000, 2000-$` assembles exactly like `dw 1000` followed by `dw 2000-$` (the fig-FORTH `dw zbran, label-$` idiom works as intended)
 - Local labels: `@name:` or `.name:` — scoped to the most recent non-local label. `foo: ... @loop:` defines the symbol `foo@loop`; `foo: ... .loop:` defines `foo.loop`. Within `foo`'s scope, `jmp @loop` / `jmp .loop` resolves to that symbol. A colon is required, just as for normal labels (this also disambiguates `.loop:` from directives like `.org` / `.db`).
 
 ```asm

@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.0.31 — 2026-09-13
+
+- `$` inside a `DB` / `DW` operand list now evaluates to the address of
+  the current item instead of the address of the directive. Previously
+  `dw 1000, 2000-$` assembled differently from `dw 1000` followed by
+  `dw 2000-$`, which broke the fig-FORTH branch idiom
+  `DW ZBRAN,LABEL-$` (the offset must be relative to the offset word
+  itself, which is where `IP` points when `BRAN1` adds it). Reported on
+  the forum against the playground.
+
+  ```asm
+          org 088Bh
+          dw ZBRAN, ULES1-$     ; was 0Eh (0899h-088Bh), now 0Ch (0899h-088Dh)
+  ```
+
+  `$` in instructions is unchanged (address of the instruction), and the
+  JSON listing `data.parts[].values` reflect the per-item addresses.
+
 ## 1.0.30 — 2026-05-26
 
 - Validate instruction operands instead of silently encoding garbage.

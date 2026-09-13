@@ -57,7 +57,9 @@ pass 1.
 
 Expressions use a recursive descent parser with C operator precedence:
 `+`, `-`, `*`, `/`, `%`, `|`, `&`, `^`, `~`, `<<`, `>>`, `()`, `LOW()`, `HIGH()`.
-`$` evaluates to the current address (start of the current instruction/directive).
+`$` evaluates to the current address: the start of the current instruction,
+or, inside a `DB`/`DW` operand list, the address of the current item (each
+item advances `$` by its own size, so `dw a, b-$` == `dw a` / `dw b-$`).
 
 Labels: `name:` or `name mnemonic …` — the colon is required when the
 label is alone on a line, optional when followed by an instruction or

@@ -1088,13 +1088,16 @@ function dbBytes(
 ): number[] {
   const out: number[] = [];
   for (const op of operands) {
+    // `$` inside a DB list is the address of the current item, not of
+    // the directive, so `db 1, $-x` == `db 1` / `db $-x` on two lines.
+    const addr = pc + out.length;
     if (
       (op.startsWith('"') && op.endsWith('"') && op.length >= 2) ||
       (op.startsWith("'") && op.endsWith("'") && op.length >= 2)
     ) {
       for (const b of decodeString(op)) out.push(b);
     } else {
-      out.push(evalExpr(op, symbols, pc, lastLabel) & 0xff);
+      out.push(evalExpr(op, symbols, addr, lastLabel) & 0xff);
     }
   }
   return out;
@@ -1108,7 +1111,8 @@ function dwBytes(
 ): number[] {
   const out: number[] = [];
   for (const op of operands) {
-    const v = evalExpr(op, symbols, pc, lastLabel) & 0xffff;
+    // `$` is the address of the current word (see dbBytes).
+    const v = evalExpr(op, symbols, pc + out.length, lastLabel) & 0xffff;
     out.push(v & 0xff, (v >> 8) & 0xff);
   }
   return out;
@@ -1698,14 +1702,7 @@ export function listing(source: string, opts?: AsmOptions): string {
 }
 
 export type ListingArgType =
-  | "reg"
-  | "regpair"
-  | "imm8"
-  | "imm16"
-  | "addr16"
-  | "port8"
-  | "rst"
-  | "name";
+  "reg" | "regpair" | "imm8" | "imm16" | "addr16" | "port8" | "rst" | "name";
 
 export interface ListingArg {
   text: string;
@@ -1985,14 +1982,20 @@ export function lineJson(source: string, opts?: AsmOptions): ListingLine[] {
         }
 
         if (m === "DB") {
-          entry.data = {
-            kind: "db",
-            parts: parts.operands.map((t) => dbPart(t, symbols, pc, lastLabel)),
-          };
+          const dbParts: ListingPart[] = [];
+          let addr = pc;
+          for (const t of parts.operands) {
+            const part = dbPart(t, symbols, addr, lastLabel);
+            dbParts.push(part);
+            addr += part.values.length;
+          }
+          entry.data = { kind: "db", parts: dbParts };
         } else if (m === "DW") {
           entry.data = {
             kind: "dw",
-            parts: parts.operands.map((t) => dwPart(t, symbols, pc, lastLabel)),
+            parts: parts.operands.map((t, i) =>
+              dwPart(t, symbols, pc + i * 2, lastLabel),
+            ),
           };
         } else {
           if (parts.operands[0]) {
@@ -2249,8 +2252,7 @@ Options:
     process.exit(1);
   }
   const rawPadding = arg(args, "--trailer-padding", "2", /^\d+$/) as
-    | string
-    | undefined;
+    string | undefined;
   const trailerPadding = rawPadding === undefined ? 0 : Number(rawPadding);
 
   const files = args;
