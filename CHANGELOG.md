@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.31 — 2026-09-13
+## 1.0.32 — 2026-09-13
 
 - `$` inside a `DB` / `DW` operand list now evaluates to the address of
   the current item instead of the address of the directive. Previously
