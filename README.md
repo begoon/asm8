@@ -244,7 +244,7 @@ Each `org` directive creates a new section. The `section name` directive names i
   ```
 
 - `ds N` reserves `N` bytes filled with 0; `ds N (F)` reserves `N` bytes filled with byte value `F`
-- Number formats: decimal (`255`), hex with `h` suffix (`0FFh`)
+- Number formats: decimal (`255`), hex with `h` suffix (`0FFh`). Hex digits without the suffix (`0FF`) are an error, not zero. 8-bit immediates accept `-256..255`, so `mvi e,-1` emits `0FFh`.
 - Character literals: `'A'` (usable anywhere a byte value is expected)
 - Strings in `db`: `db "hello"` or `db 'hello'`
 - Escape sequences in strings and character literals: `\\`, `\"`, `\'`, `\n` (0Ah), `\r` (0Dh), `\t` (09h), `\0` (00h). Example: `db "line\r\n", '\0'`. Unknown escapes like `\x` are an error.

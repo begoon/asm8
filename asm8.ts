@@ -756,12 +756,16 @@ function tokenizeExpr(expr: string): Token[] {
     }
     if (/[0-9]/.test(c)) {
       let j = i;
-      while (j < expr.length && /[0-9A-Fa-f]/.test(expr[j])) j++;
-      if (j < expr.length && /[hH]/.test(expr[j])) {
-        tokens.push({ kind: "num", val: parseInt(expr.slice(i, j), 16) });
-        j++;
+      while (j < expr.length && /[0-9A-Za-z_]/.test(expr[j])) j++;
+      const text = expr.slice(i, j);
+      if (/^[0-9A-Fa-f]+[hH]$/.test(text)) {
+        tokens.push({ kind: "num", val: parseInt(text.slice(0, -1), 16) });
+      } else if (/^[0-9]+$/.test(text)) {
+        tokens.push({ kind: "num", val: parseInt(text, 10) });
+      } else if (/^[0-9A-Fa-f]+$/.test(text)) {
+        throw new Error(`invalid number: ${text} (missing 'h' suffix?)`);
       } else {
-        tokens.push({ kind: "num", val: parseInt(expr.slice(i, j), 10) });
+        throw new Error(`invalid number: ${text}`);
       }
       i = j;
       continue;
@@ -964,8 +968,12 @@ function regPair(
   return r;
 }
 
+// evalExpr yields 16-bit unsigned values, so a negative constant such as
+// -1 arrives as 0FFFFh. Accept 0..0FFh as well as 0FF00h..0FFFFh (i.e.
+// -256..-1 in two's complement), matching ASM80's -256..255 rule.
 function imm8(m: string, v: number): number {
-  if (v < -128 || v > 0xff) {
+  const neg = v >= 0xff00 && v <= 0xffff;
+  if (v < -128 || (v > 0xff && !neg)) {
     throw new Error(`${m}: 8-bit value out of range: ${v}`);
   }
   return v & 0xff;
