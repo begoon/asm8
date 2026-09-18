@@ -233,7 +233,11 @@ window.asm8EmulatorUrl = "../";
 
 The editor is multi-tab. State lives under two keys:
 
-- `asm8-playground:tabs` — JSON array of `{ filename, source }`
+- `asm8-playground:tabs` — JSON array of `{ filename, source }` plus
+  optional `selectionStart`, `selectionEnd`, `scrollTop`, `scrollLeft`
+  (the tab's caret and viewport, captured by `captureView()` on every
+  edit, tab switch and `pagehide`; restored by `showTab()` so switching
+  tabs or reloading lands where the user left off instead of at the end)
 - `asm8-playground:active` — active tab index
 
 Extra keys: `asm8-playground:theme` (`light`/`dark`, defaults to light) and
@@ -307,6 +311,13 @@ Conventions:
 
 The in-page confirm modal replaces `window.confirm()` because Chrome
 suppresses native dialogs when the originating tab isn't foregrounded.
+
+`.editor` and `.source-wrap` use `overflow: clip`, not `hidden`. A
+`hidden` box is still a scroll container, and the gutter / `hl-text`
+overlays make it tens of thousands of pixels tall; the browser's
+caret-reveal on Enter could scroll it, shifting the visible text up
+relative to the textarea with nothing to reset it. `clip` can't be
+scrolled at all. Any new wrapper around the editor should follow suit.
 
 ## CLI flags
 
