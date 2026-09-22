@@ -54,12 +54,13 @@ const THEME_KEY = "asm8-playground:theme";
 const FORMAT_KEY = "asm8-playground:format";
 const DEFAULT_FILENAME = "program.asm";
 
-type OutputFormat = "asm" | "bin" | "rk" | "rkr" | "pki" | "gam";
+type OutputFormat = "asm" | "bin" | "rk" | "rkr" | "rks" | "pki" | "gam";
 const OUTPUT_FORMATS: readonly OutputFormat[] = [
   "asm",
   "bin",
   "rk",
   "rkr",
+  "rks",
   "pki",
   "gam",
 ];
@@ -189,6 +190,7 @@ function rk86CheckSum(v: number[] | Uint8Array): number {
 // an `org 3000h` program doesn't carry 3000h leading zero bytes.
 //   bin        -> raw payload (tight, no leading zero fill)
 //   rk, rkr    -> [start_hi, start_lo, end_hi, end_lo] + payload + [E6, cs_hi, cs_lo]
+//   rks        -> [start_lo, start_hi, end_lo, end_hi] + payload + [cs_lo, cs_hi]
 //   pki, gam   -> leading E6 sync byte + the rk layout
 function buildOutputFile(
   sections: Section[],
@@ -201,6 +203,16 @@ function buildOutputFile(
   const payload = new Uint8Array(size);
   for (const s of sections) payload.set(s.data, s.start - start);
   if (format === "bin") return payload;
+  const checksum = rk86CheckSum(payload);
+  if (format === "rks") {
+    const out = new Uint8Array(4 + size + 2);
+    const view = new DataView(out.buffer);
+    view.setUint16(0, start, true);
+    view.setUint16(2, end, true);
+    out.set(payload, 4);
+    view.setUint16(4 + size, checksum, true);
+    return out;
+  }
   const hasSync = format === "pki" || format === "gam";
   const headerLen = hasSync ? 5 : 4;
   const out = new Uint8Array(headerLen + size + 3);
@@ -212,7 +224,6 @@ function buildOutputFile(
   out[o++] = end & 0xff;
   out.set(payload, o);
   o += size;
-  const checksum = rk86CheckSum(payload);
   out[o++] = 0xe6;
   out[o++] = (checksum >> 8) & 0xff;
   out[o++] = checksum & 0xff;

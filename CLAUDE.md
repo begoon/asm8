@@ -272,7 +272,7 @@ Conventions:
   instead of leaving zero tabs.
 - **download**: one `#download-btn` button + `<select id="download-format">`
   picks what gets written — `asm` (default, writes the current
-  source), or one of `bin` / `rk` / `rkr` / `pki` / `gam` (writes
+  source), or one of `bin` / `rk` / `rkr` / `rks` / `pki` / `gam` (writes
   assembled bytes). Persisted under `asm8-playground:format`. When a
   binary format is selected but no successful assembly has happened,
   the button is disabled; `asm` is always enabled. Binary payloads
@@ -280,7 +280,8 @@ Conventions:
   zero-fill, so `org 3000h` programs stay compact). Tape formats add
   a 4-byte big-endian start/end header and an `E6 + 2-byte checksum`
   trailer (rk86CheckSum); `.pki` / `.gam` also prepend an `E6` sync
-  byte. `.bin` is the raw payload.
+  byte. `.rks` uses little-endian start/end addresses and checksum,
+  without sync bytes. `.bin` is the raw payload.
 - **run** is wired to `.rk` regardless of the dropdown — the
   emulator's autoload handler only accepts that envelope.
   `Ctrl/Cmd+E` triggers it. Target URL is `EMULATOR_URL`, defaulting
