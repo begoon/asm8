@@ -809,6 +809,25 @@ function onChange() {
 }
 
 source.addEventListener("input", onChange);
+source.addEventListener("keydown", (e) => {
+  if (
+    e.key !== "Tab" ||
+    e.shiftKey ||
+    e.ctrlKey ||
+    e.metaKey ||
+    e.altKey ||
+    e.isComposing
+  ) {
+    return;
+  }
+
+  e.preventDefault();
+  // Native insertion preserves undo history and fires the input event.
+  if (!document.execCommand("insertText", false, "\t")) {
+    source.setRangeText("\t", source.selectionStart, source.selectionEnd, "end");
+    onChange();
+  }
+});
 source.addEventListener("scroll", syncScroll);
 window.addEventListener("resize", syncScroll);
 
