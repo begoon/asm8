@@ -1562,6 +1562,7 @@ export function sectionMap(sections: Section[]): string {
 
 export interface LineInfo {
   orig: number;
+  file?: string;
   prefix: string;
   display: string;
   addr?: number;
@@ -1580,7 +1581,7 @@ export function lineInfo(source: string, opts?: AsmOptions): LineInfo[] {
   for (let idx = 0; idx < pp.length; idx++) {
     let { text: line, orig, file } = pp[idx];
     if (done) {
-      out.push({ orig, prefix: "", display: line, bytes: [] });
+      out.push({ orig, file, prefix: "", display: line, bytes: [] });
       continue;
     }
 
@@ -1602,7 +1603,7 @@ export function lineInfo(source: string, opts?: AsmOptions): LineInfo[] {
 
         if (parts.isEqu) {
           let val = evalExpr(parts.operands[0], symbols, pc, lastLabel);
-          out.push({ orig, prefix: "=" + hex4(val), display, bytes: [] });
+          out.push({ orig, file, prefix: "=" + hex4(val), display, bytes: [] });
           continue;
         }
 
@@ -1610,13 +1611,14 @@ export function lineInfo(source: string, opts?: AsmOptions): LineInfo[] {
           if (parts.label) {
             out.push({
               orig,
+              file,
               prefix: hex4(pc) + ":",
               display,
               addr: pc,
               bytes: [],
             });
           } else if (si === 0) {
-            out.push({ orig, prefix: "", display, bytes: [] });
+            out.push({ orig, file, prefix: "", display, bytes: [] });
           }
           continue;
         }
@@ -1627,6 +1629,7 @@ export function lineInfo(source: string, opts?: AsmOptions): LineInfo[] {
           pc = evalExpr(parts.operands[0], symbols, pc, lastLabel);
           out.push({
             orig,
+            file,
             prefix: hex4(pc) + ":",
             display,
             addr: pc,
@@ -1636,12 +1639,12 @@ export function lineInfo(source: string, opts?: AsmOptions): LineInfo[] {
         }
 
         if (m === "SECTION") {
-          out.push({ orig, prefix: "", display, bytes: [] });
+          out.push({ orig, file, prefix: "", display, bytes: [] });
           continue;
         }
 
         if (m === "END") {
-          out.push({ orig, prefix: "", display, bytes: [] });
+          out.push({ orig, file, prefix: "", display, bytes: [] });
           done = true;
           break;
         }
@@ -1650,6 +1653,7 @@ export function lineInfo(source: string, opts?: AsmOptions): LineInfo[] {
           const n = countDs(parts.operands, symbols, pc, lastLabel);
           out.push({
             orig,
+            file,
             prefix: hex4(pc) + ":",
             display,
             addr: pc,
@@ -1671,6 +1675,7 @@ export function lineInfo(source: string, opts?: AsmOptions): LineInfo[] {
           let prefix = hex4(pc + i) + ": " + chunk.map(hex2).join(" ");
           out.push({
             orig,
+            file,
             prefix,
             display: i === 0 ? display : "",
             addr: pc + i,
@@ -1680,6 +1685,7 @@ export function lineInfo(source: string, opts?: AsmOptions): LineInfo[] {
         if (bytes.length === 0) {
           out.push({
             orig,
+            file,
             prefix: hex4(pc) + ":",
             display,
             addr: pc,

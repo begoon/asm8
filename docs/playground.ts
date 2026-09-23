@@ -1,5 +1,6 @@
 import { asm, AsmError, lineInfo, type LineInfo, type Section } from "../asm8";
 import { BUILD_TIME } from "./build-info";
+import { tabIncludeOptions } from "./tab-includes";
 
 // The "Example" dropdown is populated from a runtime-loaded manifest —
 // docs/examples.js defines `window.asm8Examples` as
@@ -639,13 +640,24 @@ let errLine: number | null = null;
 let lastSections: Section[] | null = null;
 
 function compile() {
+  captureView();
   const src = source.value;
+  const file = asmName();
+  const opts = tabIncludeOptions(
+    tabs.map((tab, i) =>
+      i === active ? { filename: file, source: src } : tab,
+    ),
+    file,
+  );
   const totalLines = src.length === 0 ? 1 : src.split("\n").length;
   renderHighlightText(src);
   try {
-    const info = lineInfo(src);
-    lastSections = asm(src);
-    renderGutter(info, totalLines);
+    const info = lineInfo(src, opts);
+    lastSections = asm(src, opts);
+    renderGutter(
+      info.filter((row) => row.file === file),
+      totalLines,
+    );
     errLine = null;
     renderHighlight(null);
     errorEl.classList.remove("visible");
@@ -659,9 +671,9 @@ function compile() {
     runBinBtn.disabled = true;
     loadEmuBtn.disabled = true;
     if (e instanceof AsmError) {
-      errLine = e.line;
+      errLine = !e.file || e.file === file ? e.line : null;
       errorEl.classList.add("visible");
-      errorEl.textContent = `line ${e.line}: ${e.message}`;
+      errorEl.textContent = `${e.file ?? file}:${e.line}: ${e.message}`;
     } else {
       errLine = null;
       errorEl.classList.add("visible");
@@ -787,6 +799,7 @@ filenameInput.addEventListener("input", () => {
   tabs[active].filename = filenameInput.value;
   saveTabs();
   renderTabs();
+  compile();
 });
 filenameInput.addEventListener("change", () => {
   const val = filenameInput.value.trim();
@@ -802,6 +815,7 @@ filenameInput.addEventListener("change", () => {
   }
   saveTabs();
   renderTabs();
+  compile();
 });
 
 function syncScroll() {
@@ -835,7 +849,12 @@ source.addEventListener("keydown", (e) => {
   e.preventDefault();
   // Native insertion preserves undo history and fires the input event.
   if (!document.execCommand("insertText", false, "\t")) {
-    source.setRangeText("\t", source.selectionStart, source.selectionEnd, "end");
+    source.setRangeText(
+      "\t",
+      source.selectionStart,
+      source.selectionEnd,
+      "end",
+    );
     onChange();
   }
 });
