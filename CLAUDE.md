@@ -143,9 +143,10 @@ the top-level filename so an error in `bar.inc` line 2 reports
 File I/O is injected via `AsmOptions.readInclude`, so the assembler core
 stays pure. The CLI provides a `readFileSync`-based reader; the browser
 playground supplies a reader that matches exact, case-sensitive open tab
-names against their current contents (no path resolution). The active tab
-is the assembly entry point. `LineInfo.file` lets the gutter exclude rows
-from included tabs; errors show the filename and only highlight the active
+names against their current contents (no path resolution). The Main selector defaults to active-tab assembly, or pins a specific tab as
+the entry point while other tabs are edited. Its index is persisted under
+`asm8-playground:main`; closing it restores active-tab mode. Binary downloads
+use the main filename; source downloads use the active filename. `LineInfo.file` lets the gutter show rows only for the visible tab; errors show the filename and only highlight the active
 file. Filename edits trigger recompilation. The path resolution lives entirely in
 the reader (CLI joins on `dirname(fromFile)`), not in `preprocess`.
 

@@ -51,6 +51,7 @@ const STORAGE_KEY = "asm8-playground:source";
 const FILENAME_KEY = "asm8-playground:filename";
 const TABS_KEY = "asm8-playground:tabs";
 const ACTIVE_KEY = "asm8-playground:active";
+const MAIN_KEY = "asm8-playground:main";
 const THEME_KEY = "asm8-playground:theme";
 const FORMAT_KEY = "asm8-playground:format";
 const DEFAULT_FILENAME = "program.asm";
@@ -79,6 +80,7 @@ interface Tab {
 
 let tabs: Tab[] = [];
 let active = 0;
+let main: number | null = null;
 
 type Theme = "dark" | "light";
 
@@ -130,6 +132,7 @@ const runBinBtn = document.getElementById("run-bin") as HTMLButtonElement;
 const resetBtn = document.getElementById("reset") as HTMLButtonElement;
 const themeBtn = document.getElementById("theme") as HTMLButtonElement;
 const filenameInput = document.getElementById("filename") as HTMLInputElement;
+const mainSelect = document.getElementById("main-file") as HTMLSelectElement;
 const tabsEl = document.getElementById("tabs") as HTMLDivElement;
 
 function asmName(): string {
@@ -165,7 +168,7 @@ function showTab(t: Tab) {
 }
 
 function outputName(format: OutputFormat): string {
-  const n = asmName();
+  const n = main === null ? asmName() : tabs[main].filename;
   const base = n.replace(/\.[^.]*$/, "") || n;
   return `${base}.${format}`;
 }
@@ -643,17 +646,16 @@ function compile() {
   captureView();
   const src = source.value;
   const file = asmName();
-  const opts = tabIncludeOptions(
-    tabs.map((tab, i) =>
-      i === active ? { filename: file, source: src } : tab,
-    ),
-    file,
+  const liveTabs = tabs.map((tab, i) =>
+    i === active ? { filename: file, source: src } : tab,
   );
+  const entry = liveTabs[main ?? active];
+  const opts = tabIncludeOptions(liveTabs, entry.filename);
   const totalLines = src.length === 0 ? 1 : src.split("\n").length;
   renderHighlightText(src);
   try {
-    const info = lineInfo(src, opts);
-    lastSections = asm(src, opts);
+    const info = lineInfo(entry.source, opts);
+    lastSections = asm(entry.source, opts);
     renderGutter(
       info.filter((row) => row.file === file),
       totalLines,
@@ -671,9 +673,9 @@ function compile() {
     runBinBtn.disabled = true;
     loadEmuBtn.disabled = true;
     if (e instanceof AsmError) {
-      errLine = !e.file || e.file === file ? e.line : null;
+      errLine = (e.file ?? entry.filename) === file ? e.line : null;
       errorEl.classList.add("visible");
-      errorEl.textContent = `${e.file ?? file}:${e.line}: ${e.message}`;
+      errorEl.textContent = `${e.file ?? entry.filename}:${e.line}: ${e.message}`;
     } else {
       errLine = null;
       errorEl.classList.add("visible");
@@ -688,6 +690,7 @@ function saveTabs() {
   try {
     localStorage.setItem(TABS_KEY, JSON.stringify(tabs));
     localStorage.setItem(ACTIVE_KEY, String(active));
+    localStorage.setItem(MAIN_KEY, main === null ? "" : String(main));
   } catch {}
 }
 
@@ -696,7 +699,18 @@ function save() {
   saveTabs();
 }
 
+mainSelect.addEventListener("change", () => {
+  main = mainSelect.value === "" ? null : Number(mainSelect.value);
+  save();
+  compile();
+});
+
 function renderTabs() {
+  mainSelect.replaceChildren(new Option("active tab", ""));
+  tabs.forEach((tab, i) => {
+    mainSelect.add(new Option(tab.filename || "(untitled)", String(i)));
+  });
+  mainSelect.value = main === null ? "" : String(main);
   tabsEl.innerHTML = "";
   tabs.forEach((t, i) => {
     const el = document.createElement("div");
@@ -775,6 +789,8 @@ async function closeTab(i: number) {
     if (!ok) return;
   }
   if (i !== active) captureView();
+  if (main === i) main = null;
+  else if (main !== null && main > i) main--;
   if (tabs.length === 1) {
     tabs[0] = { filename: DEFAULT_FILENAME, source: "" };
     active = 0;
@@ -1101,6 +1117,16 @@ async function loadTabsFromStorage(): Promise<void> {
         }));
         const a = Number(localStorage.getItem(ACTIVE_KEY) ?? 0) | 0;
         active = a < 0 || a >= tabs.length ? 0 : a;
+        const savedMain = localStorage.getItem(MAIN_KEY);
+        const m = Number(savedMain);
+        main =
+          savedMain !== null &&
+          savedMain !== "" &&
+          Number.isInteger(m) &&
+          m >= 0 &&
+          m < tabs.length
+            ? m
+            : null;
         return;
       }
     }
