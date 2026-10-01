@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { asm, AsmError, lineInfo } from "../asm8";
-import { tabIncludeOptions } from "../docs/tab-includes";
+import { includeClosure, tabIncludeOptions } from "../docs/tab-includes";
 
 test("tab includes assemble nested sources and preserve gutter file ownership", () => {
   const source = 'include "defs.inc"\norg 100h\ninclude "body.asm"\nhlt';
@@ -63,4 +63,31 @@ test("both assembly and gutter errors identify the included tab and line", () =>
       expect(error).toMatchObject({ file: "bad.asm", line: 2 });
     }
   }
+});
+
+test("includeClosure lists the entry tab and every reachable include once", () => {
+  const tabs = [
+    {
+      filename: "main.asm",
+      source: "include \"defs.inc\"\n .include 'body.asm'",
+    },
+    { filename: "defs.inc", source: "VALUE equ 1" },
+    {
+      filename: "body.asm",
+      source: '  include "defs.inc" ; again\ninclude "main.asm"',
+    },
+    { filename: "unused.asm", source: "" },
+    { filename: "dup.inc", source: "" },
+    { filename: "dup.inc", source: "" },
+  ];
+  expect(includeClosure(tabs, "main.asm").map((t) => t.filename)).toEqual([
+    "main.asm",
+    "defs.inc",
+    "body.asm",
+  ]);
+  expect(includeClosure(tabs, "x.asm")).toEqual([]);
+  tabs[0].source = 'include "missing.inc"\ninclude "dup.inc"';
+  expect(includeClosure(tabs, "main.asm").map((t) => t.filename)).toEqual([
+    "main.asm",
+  ]);
 });

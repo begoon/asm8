@@ -1,6 +1,6 @@
 import { asm, AsmError, lineInfo, type LineInfo, type Section } from "../asm8";
 import { BUILD_TIME } from "./build-info";
-import { tabIncludeOptions } from "./tab-includes";
+import { includeClosure, tabIncludeOptions } from "./tab-includes";
 
 // The "Example" dropdown is populated from a runtime-loaded manifest —
 // docs/examples.js defines `window.asm8Examples` as
@@ -951,10 +951,24 @@ downloadFormatSel.addEventListener("change", () => {
   updateDownloadEnabled();
 });
 
+// Save the main file (pinned main or active tab) plus every tab reachable
+// through its include chain, each as a separate download.
+function downloadSources() {
+  captureView();
+  const file = asmName();
+  const liveTabs = tabs.map((tab, i) =>
+    i === active ? { filename: file, source: source.value } : tab,
+  );
+  const entry = liveTabs[main ?? active];
+  for (const tab of includeClosure(liveTabs, entry.filename)) {
+    downloadBlob(tab.source, tab.filename, "text/plain");
+  }
+}
+
 downloadBtn.addEventListener("click", () => {
   const fmt = selectedFormat();
   if (fmt === "asm") {
-    downloadBlob(source.value, asmName(), "text/plain");
+    downloadSources();
     return;
   }
   const data = buildOutput(fmt);

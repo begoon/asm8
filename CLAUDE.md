@@ -146,7 +146,8 @@ playground supplies a reader that matches exact, case-sensitive open tab
 names against their current contents (no path resolution). The Main selector defaults to active-tab assembly, or pins a specific tab as
 the entry point while other tabs are edited. Its index is persisted under
 `asm8-playground:main`; closing it restores active-tab mode. Binary downloads
-use the main filename; source downloads use the active filename. `LineInfo.file` lets the gutter show rows only for the visible tab; errors show the filename and only highlight the active
+use the main filename; `asm` downloads save the main file plus every tab
+reachable through its include chain (`includeClosure` in `tab-includes.ts`). `LineInfo.file` lets the gutter show rows only for the visible tab; errors show the filename and only highlight the active
 file. Filename edits trigger recompilation. The path resolution lives entirely in
 the reader (CLI joins on `dirname(fromFile)`), not in `preprocess`.
 
