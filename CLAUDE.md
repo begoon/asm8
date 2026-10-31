@@ -57,6 +57,9 @@ pass 1.
 
 Expressions use a recursive descent parser with C operator precedence:
 `+`, `-`, `*`, `/`, `%`, `|`, `&`, `^`, `~`, `<<`, `>>`, `()`, `LOW()`, `HIGH()`.
+Number literals support decimal (`255`), hexadecimal (`0FFh`), and binary
+(`11111111b`). The `h` and `b` suffixes are case-insensitive; binary digits
+must be `0` or `1`. Literals work wherever expressions are accepted.
 `$` evaluates to the current address: the start of the current instruction,
 or, inside a `DB`/`DW` operand list, the address of the current item (each
 item advances `$` by its own size, so `dw a, b-$` == `dw a` / `dw b-$`).

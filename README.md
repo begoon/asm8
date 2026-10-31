@@ -245,6 +245,21 @@ Each `org` directive creates a new section. The `section name` directive names i
 
 - `ds N` reserves `N` bytes filled with 0; `ds N (F)` reserves `N` bytes filled with byte value `F`
 - Number formats: decimal (`255`), hex with `h` suffix (`0FFh`), binary with `b` suffix (`11111111b`). Suffixes are case-insensitive; for example, `mvi a,011b` loads `3`. Hex digits without the suffix (`0FF`) are an error, not zero. 8-bit immediates accept `-256..255`, so `mvi e,-1` emits `0FFh`.
+
+  Binary literals accept only `0` and `1` before the `b` or `B` suffix;
+  leading zeros are optional. They work in instruction operands, directives,
+  equates, and expressions. Invalid digits (`102b`) and values outside an
+  instruction's operand range (`mvi a,100000000b`, which is 256) are errors.
+
+  ```asm
+  MASK    equ 11110000b
+          org 0
+          mvi a,011b           ; emits 3E 03
+          ani MASK | 1B        ; emits E6 F1
+          db 0b,11111111B      ; emits 00 FF
+          dw 100000000b        ; emits 00 01 (little-endian)
+  ```
+
 - Character literals: `'A'` (usable anywhere a byte value is expected)
 - Strings in `db`: `db "hello"` or `db 'hello'`
 - Escape sequences in strings and character literals: `\\`, `\"`, `\'`, `\n` (0Ah), `\r` (0Dh), `\t` (09h), `\0` (00h). Example: `db "line\r\n", '\0'`. Unknown escapes like `\x` are an error.

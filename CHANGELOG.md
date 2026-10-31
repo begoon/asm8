@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.35 — 2026-10-31
+
+- Add binary number literals with a case-insensitive `b` suffix:
+  `mvi a,011b` emits `3E 03`. Binary literals work in expressions,
+  equates, and data directives, including `db 11111111B` and
+  `dw 100000000b`. Invalid digits and out-of-range instruction operands
+  are rejected. Available in the npm package and browser playground.
+
 ## 1.0.32 — 2026-09-13
 
 - `$` inside a `DB` / `DW` operand list now evaluates to the address of
