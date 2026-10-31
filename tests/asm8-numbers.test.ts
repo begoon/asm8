@@ -42,6 +42,38 @@ describe("negative 8-bit immediates", () => {
   });
 });
 
+describe("binary literals", () => {
+  test("lowercase and uppercase suffixes, leading zeros, and byte limits", () => {
+    expect(bytes("  org 0\n  mvi a,011b\n  db 0b,1B,11111111b\n")).toEqual([
+      0x3e, 3, 0, 1, 255,
+    ]);
+  });
+
+  test("binary literals work in expressions, equates, and words", () => {
+    expect(
+      bytes("n equ 10b\n  org 0\n  db (1b << n) | 1B,-1b\n  dw 100000000b\n"),
+    ).toEqual([5, 255, 0, 1]);
+  });
+
+  test("hex literals ending in binary-looking digits stay hexadecimal", () => {
+    expect(bytes("  org 0\n  db 0Bh,11Bh & 0FFh\n")).toEqual([11, 27]);
+  });
+
+  test("invalid binary digits and trailing junk are rejected", () => {
+    for (const literal of ["102b", "2B", "011bb", "01b_", "01bfoo"]) {
+      const e = catchAsm(`  org 0\n  db ${literal}\n`);
+      expect(e.message).toContain(`invalid number: ${literal}`);
+      expect(e.line).toBe(2);
+    }
+  });
+
+  test("binary immediates still enforce byte range", () => {
+    expect(catchAsm("  org 0\n  mvi a,100000000b\n").message).toBe(
+      "MVI: 8-bit value out of range: 256",
+    );
+  });
+});
+
 describe("number literal validation", () => {
   test("hex without h suffix is an error, not zero", () => {
     const e = catchAsm("  org 0\n  mvi a,0FF\n");

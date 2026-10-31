@@ -760,6 +760,8 @@ function tokenizeExpr(expr: string): Token[] {
       const text = expr.slice(i, j);
       if (/^[0-9A-Fa-f]+[hH]$/.test(text)) {
         tokens.push({ kind: "num", val: parseInt(text.slice(0, -1), 16) });
+      } else if (/^[01]+[bB]$/.test(text)) {
+        tokens.push({ kind: "num", val: parseInt(text.slice(0, -1), 2) });
       } else if (/^[0-9]+$/.test(text)) {
         tokens.push({ kind: "num", val: parseInt(text, 10) });
       } else if (/^[0-9A-Fa-f]+$/.test(text)) {
